@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project]
+name = "pipecat-anam"
+version = "0.1.0"
+description = "Anam video avatar service for Pipecat"
+readme = "README.md"
+license = "BSD-2-Clause"
+requires-python = ">=3.10"
+keywords = ["pipecat", "anam", "avatar", "video", "ai"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+dependencies = [
+    "pipecat-ai>=0.0.100",
+    "anam>=0.3.0",
+    "av>=14.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.12",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Homepage = "https://anam.ai"
+Documentation = "https://docs.anam.ai"
+Repository = "https://github.com/anam-org/pipecat-anam"
+Issues = "https://github.com/anam-org/pipecat-anam/issues"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
