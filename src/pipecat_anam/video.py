@@ -156,6 +156,7 @@ class AnamVideoService(AIService):
 
         try:
             # Block until session_ready so the backend can receive TTS
+            logger.debug("Connecting to Anam Avatar service")
             self._anam_session = await self._client.connect_async(
                 session_options=SessionOptions(enable_session_replay=self._enable_session_replay)
             )
@@ -334,7 +335,7 @@ class AnamVideoService(AIService):
 
         Unblocks the pipeline to propagate StartFrame and allow audio to be ingested.
         """
-        logger.info("Anam connection established")
+        logger.debug("Anam connection established")
         self._session_ready_event.set()
 
     async def _on_connection_closed(self, code: str, reason: Optional[str]) -> None:

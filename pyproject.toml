@@ -15,17 +15,12 @@ requires-python = ">=3.10"
 keywords = ["pipecat", "anam", "avatar", "video", "ai"]
 classifiers = [
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Video",
     "Topic :: Multimedia :: Video",
     "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
 dependencies = [
-    "pipecat-ai>=0.0.100",
+    "pipecat-ai>=0.0.103",
     "anam>=0.3.0",
     "av>=14.0.0",
 ]
