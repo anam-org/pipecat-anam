@@ -156,6 +156,7 @@ class AnamVideoService(AIService):
 
         try:
             # Block until session_ready so the backend can receive TTS
+            logger.info("Connecting to Anam Avatar service")
             self._anam_session = await self._client.connect_async(
                 session_options=SessionOptions(enable_session_replay=self._enable_session_replay)
             )
