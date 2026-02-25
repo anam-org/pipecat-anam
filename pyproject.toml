@@ -7,7 +7,7 @@ where = ["src"]
 
 [project]
 name = "pipecat-anam"
-version = "0.1.0"
+version = "0.0.0"
 description = "Anam video avatar service for Pipecat"
 readme = "README.md"
 license = "BSD-2-Clause"
