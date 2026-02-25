@@ -1,5 +1,7 @@
 # Pipecat Anam Integration
 
+[![PyPI - Version](https://img.shields.io/pypi/v/pipecat-anam)](https://pypi.python.org/pypi/pipecat-anam)
+
 Generate real-time video avatars for your Pipecat AI agents with [Anam](https://anam.ai).
 
 **Maintainer:** Anam ([@anam-org](https://github.com/anam-org))
