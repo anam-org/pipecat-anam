@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.2-alpha.1 (2026-03-02)
+
+### Bug Fixes
+
+- Set sample rate dynamically from startFrame
+  ([#4](https://github.com/anam-org/pipecat-anam/pull/4),
+  [`d2e06ac`](https://github.com/anam-org/pipecat-anam/commit/d2e06acb5ac5127a00b7c059986781bbf241fc76))
+
+
 ## v0.0.1 (2026-02-25)
 
 
