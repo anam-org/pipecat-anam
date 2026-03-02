@@ -46,7 +46,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessorSet
 from pipecat.services.ai_service import AIService
 
 # Time between TTS frames to signal end_sequence. Makes avatar return to listening mode.
-TTS_TIMEOUT = 0.2  # seconds
+TTS_TIMEOUT = 0.35  # seconds
 
 
 class AnamVideoService(AIService):
@@ -178,7 +178,7 @@ class AnamVideoService(AIService):
         # Create agent audio input stream for sending TTS audio
         audio_config = AgentAudioInputConfig(
             encoding="pcm_s16le",
-            sample_rate=24000,
+            sample_rate=frame.audio_out_sample_rate,
             channels=1,
         )
         try:
@@ -191,6 +191,9 @@ class AnamVideoService(AIService):
             await self._close_session()
             await self.push_error_frame(ErrorFrame(error=error_msg, fatal=True))
             raise
+
+        # Set sample rate from StartFrame (set via PipelineParams).
+        self._anam_resampler = AudioResampler("s16", "mono", frame.audio_out_sample_rate)
 
         # Create tasks for consuming video and audio frames
         self._video_task = self.create_task(self._consume_video_frames())
