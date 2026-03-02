@@ -191,10 +191,10 @@ class AnamVideoService(AIService):
             await self._close_session()
             await self.push_error_frame(ErrorFrame(error=error_msg, fatal=True))
             raise
-        
+
         # Set sample rate from StartFrame (set via PipelineParams).
         self._anam_resampler = AudioResampler("s16", "mono", frame.audio_out_sample_rate)
-        
+
         # Create tasks for consuming video and audio frames
         self._video_task = self.create_task(self._consume_video_frames())
         self._audio_task = self.create_task(self._consume_audio_frames())
