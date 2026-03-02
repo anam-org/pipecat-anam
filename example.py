@@ -63,7 +63,6 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=720,
         video_out_height=480,
-        audio_in_channels=1,
     ),
 }
 
@@ -136,7 +135,6 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         params=PipelineParams(
             enable_metrics=True,
             enable_usage_metrics=True,
-            audio_out_sample_rate=16000,
         ),
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
     )
