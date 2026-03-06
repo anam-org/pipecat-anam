@@ -109,7 +109,7 @@ class AnamVideoService(AIService):
         self._session_ready_event = asyncio.Event()
         self._queue = asyncio.Queue()
 
-        # Set by TTSStartedFrame
+        # Reset by TTSStartedFrame
         self._received_first_audio_frame: bool = False
         # Only push frames matching the active context, cleared on timeout and interrupt.
         self._active_tts_context_id: Optional[str] = None
