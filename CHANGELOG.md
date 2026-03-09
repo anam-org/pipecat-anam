@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.3-alpha.1 (2026-03-09)
+
+### Bug Fixes
+
+- Tts stability
+  ([`073381e`](https://github.com/anam-org/pipecat-anam/commit/073381e17f173027f350cee4d26050d973f8316c))
+
+
 ## v0.0.2 (2026-03-06)
 
 
