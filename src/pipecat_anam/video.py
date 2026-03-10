@@ -376,7 +376,9 @@ class AnamVideoService(AIService):
         """Prepare for a new TTS segment: end previous, reset send task."""
         ctx = frame.context_id if frame.context_id is not None else "__legacy__"
         if ctx == self._active_tts_context_id:
-            logger.warning(f"TTSStartedFrame received for existing context_id={ctx} - did TTSStoppedFrame get sent?")
+            logger.warning(
+                f"TTSStartedFrame received for existing context_id={ctx} - did TTSStoppedFrame get sent?"
+            )
         else:
             await self._cancel_send_task()
             await self._create_send_task()
