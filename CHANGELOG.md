@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.3-alpha.2 (2026-03-11)
+
+### Bug Fixes
+
+- Re-use handler for existing context_id ([#6](https://github.com/anam-org/pipecat-anam/pull/6),
+  [`282985c`](https://github.com/anam-org/pipecat-anam/commit/282985cb89ad0d776dfa8cba76d344aa831d7ea2))
+
+
 ## v0.0.3-alpha.1 (2026-03-09)
 
 ### Bug Fixes
