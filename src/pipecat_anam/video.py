@@ -265,7 +265,7 @@ class AnamVideoService(AIService):
             return
 
         if isinstance(frame, TTSStartedFrame):
-            await self._prepare_tts_sequence(frame)
+            await self._handle_tts_started(frame)
         if isinstance(frame, TTSStoppedFrame):
             self._draining_tts_speech = True
         if isinstance(frame, InterruptionFrame):
@@ -372,14 +372,20 @@ class AnamVideoService(AIService):
             await self._cleanup()
             await self.push_error_frame(ErrorFrame(error=error_message))
 
-    async def _prepare_tts_sequence(self, frame: TTSStartedFrame) -> None:
-        """Prepare for a new TTS segment: end previous, reset send task."""
-        await self._cancel_send_task()
-        await self._create_send_task()
-        self._active_tts_context_id = (
-            frame.context_id if frame.context_id is not None else "__legacy__"
-        )
-        self._received_first_audio_frame = False
+    async def _handle_tts_started(self, frame: TTSStartedFrame) -> None:
+        """Handle TTSStartedFrame: end previous, reset send task."""
+        ctx = frame.context_id if frame.context_id is not None else "__legacy__"
+        if ctx == self._active_tts_context_id:
+            logger.warning(
+                f"TTSStartedFrame received for existing context_id={ctx} - did TTSStoppedFrame get sent?"
+            )
+        else:
+            await self._cancel_send_task()
+            await self._create_send_task()
+            self._active_tts_context_id = (
+                frame.context_id if frame.context_id is not None else "__legacy__"
+            )
+            self._received_first_audio_frame = False
 
     async def _handle_interruption(self) -> None:
         """Handle interruption events by resetting send tasks and notifying client.
