@@ -41,14 +41,13 @@ from pipecat.frames.frames import (
     SpeechOutputAudioRawFrame,
     StartFrame,
     TTSAudioRawFrame,
-    TTSStartedFrame,
     TTSStoppedFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessorSetup
 from pipecat.services.ai_service import AIService
 
-# Timeout between TTSStoppedFrame and late TTSAudioRawFrames.
-TTS_TIMEOUT = 0.35  # seconds
+# Wait briefly for late TTSAudioRawFrames after TTSStoppedFrame before closing the sequence.
+TTS_TIMEOUT = 0.2  # seconds
 
 
 class AnamVideoService(AIService):
@@ -104,17 +103,12 @@ class AnamVideoService(AIService):
         self._send_task: Optional[asyncio.Task] = None
         self._video_task: Optional[asyncio.Task] = None
         self._audio_task: Optional[asyncio.Task] = None
+        self._queue: asyncio.Queue[TTSAudioRawFrame | TTSStoppedFrame] = asyncio.Queue()
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
         self._session_ready_event = asyncio.Event()
-        self._queue = asyncio.Queue()
-
-        # Reset by TTSStartedFrame
         self._received_first_audio_frame: bool = False
-        # Only push frames matching the active context, cleared on timeout and interrupt.
-        self._active_tts_context_id: Optional[str] = None
-        # True after TTSStoppedFrame. Accept late frames until TTS_TIMEOUT.
-        self._draining_tts_speech: bool = False
+        self._has_active_tts_audio: bool = False
 
     async def setup(self, setup: FrameProcessorSetup):
         """Set up the Anam video service with necessary configuration.
@@ -206,8 +200,6 @@ class AnamVideoService(AIService):
         # Create tasks for consuming video and audio frames
         self._video_task = self.create_task(self._consume_video_frames())
         self._audio_task = self.create_task(self._consume_audio_frames())
-
-        # Create send task
         await self._create_send_task()
 
     async def stop(self, frame: EndFrame):
@@ -237,6 +229,8 @@ class AnamVideoService(AIService):
         await self._cancel_send_task()
         self._agent_audio_stream = None
         self._transport_ready = False
+        self._received_first_audio_frame = False
+        self._has_active_tts_audio = False
         self._client = None
         self._anam_session = None
 
@@ -245,9 +239,8 @@ class AnamVideoService(AIService):
 
         Handles different types of frames to manage avatar interactions:
 
-        - TTSAudioRawFrame: Processes audio for avatar speech (not pushed downstream)
-        - TTSStartedFrame: Prepares for a new speech sequence
-        - TTSStoppedFrame: Signals that the current speech sequence is draining
+        - TTSAudioRawFrame: Queues audio for ordered delivery to Anam (not pushed downstream)
+        - TTSStoppedFrame: Closes the current audio sequence after a short late-audio timeout
         - InterruptionFrame: Handles interruptions
         - OutputTransportReadyFrame: Sets transport ready flag
         - BotStartedSpeakingFrame: Stops TTFB metrics
@@ -260,14 +253,12 @@ class AnamVideoService(AIService):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, TTSAudioRawFrame):
-            # Do not forward TTS audio downstream; Anam syncs TTS with video
-            await self._queue.put(frame)
+            if self._send_task:
+                await self._queue.put(frame)
             return
 
-        if isinstance(frame, TTSStartedFrame):
-            await self._handle_tts_started(frame)
-        if isinstance(frame, TTSStoppedFrame):
-            self._draining_tts_speech = True
+        if isinstance(frame, TTSStoppedFrame) and self._send_task:
+            await self._queue.put(frame)
         if isinstance(frame, InterruptionFrame):
             await self._handle_interruption()
         if isinstance(frame, OutputTransportReadyFrame):
@@ -347,6 +338,68 @@ class AnamVideoService(AIService):
             await self.cancel_task(self._audio_task)
             self._audio_task = None
 
+    async def _create_send_task(self):
+        """Create the audio sending task if it doesn't exist."""
+        if not self._send_task:
+            self._queue = asyncio.Queue()
+            self._send_task = self.create_task(self._send_task_handler())
+
+    async def _cancel_send_task(self):
+        """Cancel the audio sending task if it exists."""
+        if self._send_task:
+            await self.cancel_task(self._send_task)
+            self._send_task = None
+
+    async def _send_task_handler(self):
+        """Serialize TTS chunks and end_sequence notifications sent to Anam.
+
+        TTSStoppedFrame can arrive before the final TTSAudioRawFrame chunks, so once we see a
+        stop frame we wait briefly for late audio before ending the current sequence.
+        """
+        if not self._agent_audio_stream:
+            logger.error("Agent audio stream not initialized")
+            return
+
+        waiting_for_end_sequence = False
+
+        while True:
+            try:
+                if waiting_for_end_sequence:
+                    frame = await asyncio.wait_for(self._queue.get(), timeout=TTS_TIMEOUT)
+                else:
+                    frame = await self._queue.get()
+
+                try:
+                    if isinstance(frame, TTSAudioRawFrame):
+                        if frame.audio:
+                            await self._agent_audio_stream.send_audio_chunk(frame.audio)
+                            logger.debug(f"pushed frame: {frame}")
+                            self._has_active_tts_audio = True
+                            if not self._received_first_audio_frame:
+                                await self.start_ttfb_metrics()
+                                self._received_first_audio_frame = True
+                    elif isinstance(frame, TTSStoppedFrame):
+                        waiting_for_end_sequence = True
+                finally:
+                    self._queue.task_done()
+
+            except asyncio.TimeoutError:
+                if waiting_for_end_sequence:
+                    if self._agent_audio_stream and self._has_active_tts_audio:
+                        await self._agent_audio_stream.end_sequence()
+                        self._has_active_tts_audio = False
+                        self._received_first_audio_frame = False
+                    waiting_for_end_sequence = False
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception as e:
+                error_msg = f"Anam audio send error: {e}"
+                logger.error(error_msg)
+                await self.push_error_frame(ErrorFrame(error=error_msg))
+                break
+
     async def _on_session_ready(self) -> None:
         """Handle session ready event (backend service is ready to receive audio).
 
@@ -372,36 +425,21 @@ class AnamVideoService(AIService):
             await self._cleanup()
             await self.push_error_frame(ErrorFrame(error=error_message))
 
-    async def _handle_tts_started(self, frame: TTSStartedFrame) -> None:
-        """Handle TTSStartedFrame: end previous, reset send task."""
-        ctx = frame.context_id if frame.context_id is not None else "__legacy__"
-        if ctx == self._active_tts_context_id:
-            logger.warning(
-                f"TTSStartedFrame received for existing context_id={ctx} - did TTSStoppedFrame get sent?"
-            )
-        else:
-            await self._cancel_send_task()
-            await self._create_send_task()
-            self._active_tts_context_id = (
-                frame.context_id if frame.context_id is not None else "__legacy__"
-            )
-            self._received_first_audio_frame = False
-
     async def _handle_interruption(self) -> None:
-        """Handle interruption events by resetting send tasks and notifying client.
-
-        Manages the interruption flow by:
-        1. Signaling the session to interrupt current speech
-        2. Cancelling the send task (stops sending; discards old queue, calls end_sequence, reset context)
-        3. Creating a new send task with a fresh queue
-        """
+        """Handle interruption events by signaling the session to interrupt."""
         if self._anam_session:
             await self._anam_session.interrupt()
+
         await self._cancel_send_task()
+        if self._agent_audio_stream and self._has_active_tts_audio:
+            await self._agent_audio_stream.end_sequence()
+        self._received_first_audio_frame = False
+        self._has_active_tts_audio = False
         await self._create_send_task()
 
     async def _close_session(self):
         """Close the Anam client."""
+        await self._cancel_send_task()
         if self._client and self._anam_session and self._anam_session.is_active:
             try:
                 logger.debug("Disconnecting from Anam")
@@ -412,60 +450,3 @@ class AnamVideoService(AIService):
                 self._anam_session = None
                 self._client = None
 
-    async def _create_send_task(self):
-        """Create the audio sending task if it doesn't exist."""
-        if not self._send_task:
-            self._queue = asyncio.Queue()
-            self._send_task = self.create_task(self._send_task_handler())
-
-    async def _cancel_send_task(self):
-        """Cancel the audio sending task if it exists."""
-        if self._send_task:
-            await self.cancel_task(self._send_task)
-            self._send_task = None
-
-    async def _send_task_handler(self):
-        """Handle sending audio frames to the Anam client.
-
-        Forwards each TTS frame's audio without buffering. TTSStoppedFrame signals TTS
-        is draining, we accept TTSAudioRawFrames for TTS_TIMEOUT seconds after TTSStoppedFrame.
-
-        Anam accepts any sample rate but recommends 16 bit PCM 24kHz mono audio for best trade-off
-        between latency, audio quality and avatar performance.
-        """
-        if not self._agent_audio_stream:
-            logger.error("Agent audio stream not initialized")
-            return
-
-        while True:
-            try:
-                frame = await asyncio.wait_for(self._queue.get(), timeout=TTS_TIMEOUT)
-                if isinstance(frame, TTSAudioRawFrame) and frame.audio:
-                    ctx = frame.context_id if frame.context_id is not None else "__legacy__"
-                    if ctx != self._active_tts_context_id:
-                        logger.warning(
-                            f"Dropping TTSAudioRawFrame for context {ctx} (active context: {self._active_tts_context_id}) - did the frame arrive too late?"
-                        )
-                        continue  # Only push frames matching active context
-                    await self._agent_audio_stream.send_audio_chunk(frame.audio)
-                    if not self._received_first_audio_frame:
-                        await self.start_ttfb_metrics()  # Start TTFB metrics on first audio frame
-                        self._received_first_audio_frame = True
-
-            except asyncio.TimeoutError:
-                if self._draining_tts_speech and self._agent_audio_stream:
-                    await self._agent_audio_stream.end_sequence()
-                    self._draining_tts_speech = False
-                    self._active_tts_context_id = None
-
-            except asyncio.CancelledError:
-                if self._active_tts_context_id is not None and self._agent_audio_stream:
-                    await self._agent_audio_stream.end_sequence()
-                self._draining_tts_speech = False
-                self._active_tts_context_id = None
-                raise
-            except Exception as e:
-                error_msg = f"Anam audio send error: {e}"
-                logger.error(error_msg)
-                await self.push_error_frame(ErrorFrame(error=error_msg))
-                break
