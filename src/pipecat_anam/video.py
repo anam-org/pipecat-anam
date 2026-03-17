@@ -104,7 +104,9 @@ class AnamVideoService(AIService):
         self._send_task: Optional[asyncio.Task] = None
         self._video_task: Optional[asyncio.Task] = None
         self._audio_task: Optional[asyncio.Task] = None
-        self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = asyncio.Queue()
+        self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = (
+            asyncio.Queue()
+        )
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
         self._session_ready_event = asyncio.Event()
