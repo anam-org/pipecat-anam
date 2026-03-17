@@ -38,6 +38,14 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     OutputImageRawFrame,
     OutputTransportReadyFrame,
+    OutputTransportMessageUrgentFrame,
+    LLMTextFrame,
+    TTSTextFrame,
+    MetricsFrame,
+    UserAudioRawFrame,
+    UserSpeakingFrame,
+    BotSpeakingFrame,
+    InputAudioRawFrame,
     SpeechOutputAudioRawFrame,
     StartFrame,
     TTSAudioRawFrame,
@@ -250,15 +258,14 @@ class AnamVideoService(AIService):
             frame: The frame to be processed.
             direction: The direction of frame processing (input/output).
         """
-        await super().process_frame(frame, direction)
+        await super().process_frame(frame, direction) 
+        if not isinstance(frame, (UserAudioRawFrame, InputAudioRawFrame, UserSpeakingFrame, BotSpeakingFrame, OutputTransportMessageUrgentFrame, MetricsFrame, LLMTextFrame, TTSTextFrame)):
+            logger.debug(f"Pushing frame {frame}")
 
-        if isinstance(frame, TTSAudioRawFrame):
+        if isinstance(frame, (TTSAudioRawFrame, TTSStoppedFrame)):
             if self._send_task:
                 await self._queue.put(frame)
             return
-
-        if isinstance(frame, TTSStoppedFrame) and self._send_task:
-            await self._queue.put(frame)
         if isinstance(frame, InterruptionFrame):
             await self._handle_interruption()
         if isinstance(frame, OutputTransportReadyFrame):
@@ -373,13 +380,14 @@ class AnamVideoService(AIService):
                     if isinstance(frame, TTSAudioRawFrame):
                         if frame.audio:
                             await self._agent_audio_stream.send_audio_chunk(frame.audio)
-                            logger.debug(f"pushed frame: {frame}")
+                            logger.debug("pushed audio chunk")
                             self._has_active_tts_audio = True
                             if not self._received_first_audio_frame:
                                 await self.start_ttfb_metrics()
                                 self._received_first_audio_frame = True
                     elif isinstance(frame, TTSStoppedFrame):
                         waiting_for_end_sequence = True
+                        logger.debug("waiting for end sequence")
                 finally:
                     self._queue.task_done()
 
@@ -387,6 +395,7 @@ class AnamVideoService(AIService):
                 if waiting_for_end_sequence:
                     if self._agent_audio_stream and self._has_active_tts_audio:
                         await self._agent_audio_stream.end_sequence()
+                        logger.debug("pushed end sequence")
                         self._has_active_tts_audio = False
                         self._received_first_audio_frame = False
                     waiting_for_end_sequence = False
