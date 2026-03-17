@@ -138,9 +138,24 @@ class AnamVideoService(AIService):
     async def cleanup(self):
         """Clean up the service and release resources."""
         await super().cleanup()
+        await self._shutdown_client()
+
+    def _detach_client_listeners(self, client: AnamClient | None = None) -> None:
+        """Remove registered client listeners if the client is still available."""
+        client = client or self._client
+        if client is None:
+            return
+
+        client.remove_listener(AnamEvent.SESSION_READY, self._on_session_ready)
+        client.remove_listener(AnamEvent.CONNECTION_CLOSED, self._on_connection_closed)
+
+    async def _shutdown_client(self) -> None:
+        """Detach listeners, close the session, and clean up local resources."""
+        client = self._client
+        self._detach_client_listeners(client)
         await self._close_session()
         await self._cleanup()
-        
+
     async def start(self, frame: StartFrame):
         """Start the Anam video service and initialize the avatar session.
 
@@ -208,8 +223,7 @@ class AnamVideoService(AIService):
             frame: The end frame.
         """
         await super().stop(frame)
-        await self._close_session()
-        await self._cleanup()
+        await self._shutdown_client()
 
     async def cancel(self, frame: CancelFrame):
         """Cancel the Anam video service.
@@ -218,8 +232,7 @@ class AnamVideoService(AIService):
             frame: The cancel frame.
         """
         await super().cancel(frame)
-        await self._close_session()
-        await self._cleanup()
+        await self._shutdown_client()
 
     async def _cleanup(self):
         """Clean up resources: end conversation and cancel all tasks."""
