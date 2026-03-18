@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.3-alpha.3 (2026-03-18)
+
+### Bug Fixes
+
+- Serialize TTS lifecycle handling
+  ([`4b1a122`](https://github.com/anam-org/pipecat-anam/commit/4b1a12279efe7eb958ebe461ccccd7d577f2a202))
+
+
 ## v0.0.3-alpha.2 (2026-03-11)
 
 ### Bug Fixes
