@@ -21,11 +21,18 @@ uv add pipecat-anam
 You'll also need Pipecat with the services you use (STT, TTS, LLM, transport). For the example:
 
 ```bash
-pip install "pipecat-ai[deepgram,cartesia,google,daily,runner,webrtc]"
-pip install python-dotenv
+uv sync --extra dev --extra example
 ```
 
-The `webrtc` extra is required for the built-in WebRTC transport (`-t webrtc`). Omit it if you only use Daily (`-t daily`).
+This installs the example's Pipecat service and transport extras in one shot (`deepgram`, `cartesia`, `google`, `daily`, `runner`, `webrtc`) plus local dev tooling.
+
+Or with pip:
+
+```bash
+pip install -e ".[dev,example]"
+```
+
+If you are building your own pipeline, install only the Pipecat extras you need.
 
 ## Prerequisites
 
@@ -76,8 +83,7 @@ See [example.py](example.py) for a complete working example.
 1. Install dependencies:
 
 ```bash
-pip install -e ".[dev]"
-pip install "pipecat-ai[deepgram,cartesia,google,daily,runner,webrtc]"
+uv sync --extra dev --extra example
 ```
 
 2. Set up your environment:
@@ -90,13 +96,13 @@ cp env.example .env
 3. Run:
 
 ```bash
-python example.py -t daily
+uv run python example.py -t daily
 ```
 
 Or with the built-in WebRTC transport:
 
 ```bash
-python example.py -t webrtc
+uv run python example.py -t webrtc
 ```
 
 The bot will create a room (or use the built-in client) with a video avatar that responds to your voice.

@@ -33,6 +33,10 @@ dev = [
     "python-dotenv>=1.0",
     "mypy>=1.10.0",
 ]
+example = [
+    "pipecat-ai[cartesia,daily,deepgram,google,runner,webrtc]>=0.0.103",
+    "python-dotenv>=1.0",
+]
 
 [project.urls]
 Homepage = "https://anam.ai"
