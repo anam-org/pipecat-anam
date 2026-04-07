@@ -78,6 +78,29 @@ pipeline = Pipeline([
 
 See [example.py](example.py) for a complete working example.
 
+## Server-Side 16:9 Crop Example
+
+If your deployment receives Anam's default 3:2 video and you want to crop it to
+16:9 on your own Pipecat server, see [example_16x9_crop.py](example_16x9_crop.py).
+That example keeps the crop logic local to the example instead of making it part
+of the package API, and defaults to a `720x405` output.
+
+```python
+from example_16x9_crop import TopBottom16x9CropProcessor
+
+pipeline = Pipeline([
+    transport.input(),
+    stt,
+    context_aggregator.user(),
+    llm,
+    tts,
+    anam,
+    TopBottom16x9CropProcessor(),  # crops to 720x405 by default
+    transport.output(),
+    context_aggregator.assistant(),
+])
+```
+
 ## Running the Example
 
 1. Install dependencies:
@@ -106,6 +129,12 @@ uv run python example.py -t webrtc
 ```
 
 The bot will create a room (or use the built-in client) with a video avatar that responds to your voice.
+
+To run the server-side 16:9 crop variant instead:
+
+```bash
+uv run python example_16x9_crop.py -t daily
+```
 
 ## Compatibility
 

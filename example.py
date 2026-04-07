@@ -25,6 +25,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
@@ -42,32 +43,46 @@ REQUIRED_ENV_VARS = [
     "CARTESIA_API_KEY",
     "GOOGLE_API_KEY",
 ]
-missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
-if missing:
-    raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
-
-transport_params = {
-    "daily": lambda: DailyParams(
-        audio_in_enabled=True,
-        audio_out_enabled=True,
-        video_out_enabled=True,
-        video_out_is_live=True,
-        video_out_width=720,
-        video_out_height=480,
-        video_out_bitrate=1_000_000,
-    ),
-    "webrtc": lambda: TransportParams(
-        audio_in_enabled=True,
-        audio_out_enabled=True,
-        video_out_enabled=True,
-        video_out_is_live=True,
-        video_out_width=720,
-        video_out_height=480,
-    ),
-}
 
 
-async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
+def ensure_required_env_vars() -> None:
+    missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
+    if missing:
+        raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
+
+
+def build_transport_params(video_out_width: int, video_out_height: int):
+    return {
+        "daily": lambda: DailyParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            video_out_enabled=True,
+            video_out_is_live=True,
+            video_out_width=video_out_width,
+            video_out_height=video_out_height,
+            video_out_bitrate=1_000_000,
+        ),
+        "webrtc": lambda: TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            video_out_enabled=True,
+            video_out_is_live=True,
+            video_out_width=video_out_width,
+            video_out_height=video_out_height,
+        ),
+    }
+
+
+transport_params = build_transport_params(720, 480)
+
+
+async def run_bot(
+    transport: BaseTransport,
+    runner_args: RunnerArguments,
+    post_anam_processors: list[FrameProcessor] | None = None,
+):
+    ensure_required_env_vars()
+
     from pipecat.services.cartesia.tts import CartesiaTTSService
     from pipecat.services.deepgram.stt import DeepgramSTTService
     from pipecat.services.google.llm import GoogleLLMService
@@ -125,6 +140,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             llm,
             tts,
             anam,
+            *(post_anam_processors or []),
             transport.output(),
             context_aggregator.assistant(),
         ]
@@ -169,9 +185,13 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     await runner.run(task)
 
 
-async def bot(runner_args: RunnerArguments):
-    transport = await create_transport(runner_args, transport_params)
-    await run_bot(transport, runner_args)
+async def bot(
+    runner_args: RunnerArguments,
+    custom_transport_params=None,
+    post_anam_processors: list[FrameProcessor] | None = None,
+):
+    transport = await create_transport(runner_args, custom_transport_params or transport_params)
+    await run_bot(transport, runner_args, post_anam_processors=post_anam_processors)
 
 
 if __name__ == "__main__":
