@@ -78,10 +78,12 @@ pipeline = Pipeline([
 
 See [example.py](example.py) for a complete working example.
 
-## Video Post-Filter Example (Anam-Agnostic)
+## Video Post-Filter Example
 
-[`example_video_post_filter.py`](example_video_post_filter.py) adds an anam-agnostic
-post-filter after `AnamVideoService`:
+The output transport scales the avatar resolution to the specified output resolution. This result in an amorphous scaling when the aspect ratios between output and avatar mismatch, i.e., the video is stretched or squeezed in on or both dimensions. To avoid this, you can apply a video post-processing filter to crop the avatar to the output aspect ratio.
+
+[`example_video_post_filter.py`](example_video_post_filter.py) adds a video
+post processing filter after `AnamVideoService`:
 
 - It works on `OutputImageRawFrame` and does not depend on Anam internals.
 - It assumes packed RGB24 bytes (`format="RGB"`).
@@ -123,6 +125,10 @@ The bot will create a room (or use the built-in client) with a video avatar that
 
 To run the center-aspect post-filter example:
 
+```bash
+uv run python example_video_post_filter.py
+```
+or with the Daily transport:
 ```bash
 uv run python example_video_post_filter.py -t daily
 ```
