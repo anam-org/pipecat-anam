@@ -33,12 +33,19 @@ dev = [
     "python-dotenv>=1.0",
     "mypy>=1.10.0",
 ]
+example = [
+    "pipecat-ai[cartesia,daily,deepgram,google,runner,webrtc]>=0.0.103",
+    "python-dotenv>=1.0",
+]
 
 [project.urls]
 Homepage = "https://anam.ai"
 Documentation = "https://docs.anam.ai"
 Repository = "https://github.com/anam-org/pipecat-anam"
 Issues = "https://github.com/anam-org/pipecat-anam/issues"
+
+[tool.uv.sources]
+anam = { path = "../python-sdk", editable = true }
 
 [tool.ruff]
 line-length = 100

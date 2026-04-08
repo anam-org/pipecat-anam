@@ -18,14 +18,21 @@ Or with uv:
 uv add pipecat-anam
 ```
 
-You'll also need Pipecat with the services you use (STT, TTS, LLM, transport). For the example:
+You'll also need Pipecat with the services you use (STT, TTS, LLM, transport). For this repo's examples:
 
 ```bash
-pip install "pipecat-ai[deepgram,cartesia,google,daily,runner,webrtc]"
-pip install python-dotenv
+uv sync --extra dev --extra example
 ```
 
-The `webrtc` extra is required for the built-in WebRTC transport (`-t webrtc`). Omit it if you only use Daily (`-t daily`).
+That installs all required Pipecat extras (`deepgram`, `cartesia`, `google`, `daily`, `runner`, `webrtc`) plus local tooling.
+
+If you prefer pip:
+
+```bash
+pip install -e ".[dev,example]"
+```
+
+If you are building your own pipeline, install only the Pipecat extras you need.
 
 ## Prerequisites
 
@@ -71,13 +78,26 @@ pipeline = Pipeline([
 
 See [example.py](example.py) for a complete working example.
 
+## Video Post-Filter Example (Anam-Agnostic)
+
+[`example_video_post_filter.py`](example_video_post_filter.py) adds an anam-agnostic
+post-filter after `AnamVideoService`:
+
+- It works on `OutputImageRawFrame` and does not depend on Anam internals.
+- It assumes packed RGB24 bytes (`format="RGB"`).
+- It performs a centered crop to match the configured output aspect ratio.
+- It does not scale. Pipecat output transport can still scale as needed.
+- It is a no-op when source and target aspect ratios already match.
+
+The reusable helper lives in [`examples/video_post_filter.py`](examples/video_post_filter.py).
+The same helper can be used with any Pipecat service producing `OutputImageRawFrame`.
+
 ## Running the Example
 
 1. Install dependencies:
 
 ```bash
-pip install -e ".[dev]"
-pip install "pipecat-ai[deepgram,cartesia,google,daily,runner,webrtc]"
+uv sync --extra dev --extra example
 ```
 
 2. Set up your environment:
@@ -90,16 +110,22 @@ cp env.example .env
 3. Run:
 
 ```bash
-python example.py -t daily
+uv run python example.py -t daily
 ```
 
 Or with the built-in WebRTC transport:
 
 ```bash
-python example.py -t webrtc
+uv run python example.py -t webrtc
 ```
 
 The bot will create a room (or use the built-in client) with a video avatar that responds to your voice.
+
+To run the center-aspect post-filter example:
+
+```bash
+uv run python example_video_post_filter.py -t daily
+```
 
 ## Compatibility
 
