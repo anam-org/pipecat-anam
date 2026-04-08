@@ -42,7 +42,7 @@ from pipecat_anam import AnamVideoService
 
 load_dotenv(override=True)
 
-VIDEO_OUT_SIZE: Final[tuple[int, int]] = (1200, 800)
+VIDEO_OUT_SIZE: Final[tuple[int, int]] = (720, 720)
 REQUIRED_ENV_VARS: Final[list[str]] = [
     "ANAM_API_KEY",
     "DEEPGRAM_API_KEY",
