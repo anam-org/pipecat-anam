@@ -18,15 +18,15 @@ Or with uv:
 uv add pipecat-anam
 ```
 
-You'll also need Pipecat with the services you use (STT, TTS, LLM, transport). For the example:
+You'll also need Pipecat with the services you use (STT, TTS, LLM, transport). For this repo's examples:
 
 ```bash
 uv sync --extra dev --extra example
 ```
 
-This installs the example's Pipecat service and transport extras in one shot (`deepgram`, `cartesia`, `google`, `daily`, `runner`, `webrtc`) plus local dev tooling.
+That installs all required Pipecat extras (`deepgram`, `cartesia`, `google`, `daily`, `runner`, `webrtc`) plus local tooling.
 
-Or with pip:
+If you prefer pip:
 
 ```bash
 pip install -e ".[dev,example]"
@@ -78,6 +78,22 @@ pipeline = Pipeline([
 
 See [example.py](example.py) for a complete working example.
 
+## Video Post-Filter Example
+
+The output transport scales the avatar resolution to the specified output resolution. This result in an amorphous scaling when the aspect ratios between output and avatar mismatch, i.e., the video is stretched or squeezed in on or both dimensions. To avoid this, you can apply a video post-processing filter to crop the avatar to the output aspect ratio.
+
+[`example_video_post_filter.py`](example_video_post_filter.py) adds a video
+post processing filter after `AnamVideoService`:
+
+- It works on `OutputImageRawFrame` and does not depend on Anam internals.
+- It assumes packed RGB24 bytes (`format="RGB"`).
+- It performs a centered crop to match the configured output aspect ratio.
+- It does not scale. Pipecat output transport can still scale as needed.
+- It is a no-op when source and target aspect ratios already match.
+
+The reusable helper lives in [`examples/video_post_filter.py`](examples/video_post_filter.py).
+The same helper can be used with any Pipecat service producing `OutputImageRawFrame`.
+
 ## Running the Example
 
 1. Install dependencies:
@@ -106,6 +122,16 @@ uv run python example.py -t webrtc
 ```
 
 The bot will create a room (or use the built-in client) with a video avatar that responds to your voice.
+
+To run the center-aspect post-filter example:
+
+```bash
+uv run python example_video_post_filter.py
+```
+or with the Daily transport:
+```bash
+uv run python example_video_post_filter.py -t daily
+```
 
 ## Compatibility
 
