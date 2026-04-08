@@ -62,7 +62,8 @@ def center_crop_rgb24_bytes_to_aspect(
     if lhs == rhs:
         return image, source_size
 
-    row_bytes = source_width * RGB24_BYTES_PER_PIXEL
+    # For packed RGB24 without row padding, row stride equals width * bytes_per_pixel.
+    stride_bytes = source_width * RGB24_BYTES_PER_PIXEL
     if lhs > rhs:
         # Source is wider than target -> crop left/right.
         cropped_width = int(round((source_height * target_width) / target_height))
@@ -76,7 +77,7 @@ def center_crop_rgb24_bytes_to_aspect(
 
         dst = 0
         for row in range(source_height):
-            src_start = row * row_bytes + x * RGB24_BYTES_PER_PIXEL
+            src_start = row * stride_bytes + x * RGB24_BYTES_PER_PIXEL
             src_end = src_start + cropped_row_bytes
             cropped[dst : dst + cropped_row_bytes] = image[src_start:src_end]
             dst += cropped_row_bytes
@@ -90,8 +91,8 @@ def center_crop_rgb24_bytes_to_aspect(
         return image, source_size
 
     y = (source_height - cropped_height) // 2
-    src_start = y * row_bytes
-    src_end = src_start + cropped_height * row_bytes
+    src_start = y * stride_bytes
+    src_end = src_start + cropped_height * stride_bytes
     return image[src_start:src_end], (source_width, cropped_height)
 
 
