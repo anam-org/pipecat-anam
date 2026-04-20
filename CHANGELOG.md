@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.3-alpha.4 (2026-04-20)
+
+### Bug Fixes
+
+- Pin hq video track
+  ([`c69264e`](https://github.com/anam-org/pipecat-anam/commit/c69264e42c8fcd78f59d7c0369ec24b0d19d408e))
+
+### Chores
+
+- Bump python version ([#12](https://github.com/anam-org/pipecat-anam/pull/12),
+  [`5f0951e`](https://github.com/anam-org/pipecat-anam/commit/5f0951ecee55eacb97741663be615452d6a1e24a))
+
+### Documentation
+
+- Example post-processing crop filter
+  ([`85de8be`](https://github.com/anam-org/pipecat-anam/commit/85de8be93f1eb1d1d3fe23d9bf235cf0a38836c3))
+
+
 ## v0.0.3-alpha.3 (2026-03-18)
 
 ### Bug Fixes
