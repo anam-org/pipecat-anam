@@ -67,6 +67,7 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=VIDEO_OUT_SIZE[0],
         video_out_height=VIDEO_OUT_SIZE[1],
+        video_out_bitrate=5_000_000,
     ),
 }
 
