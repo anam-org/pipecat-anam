@@ -9,7 +9,7 @@
 
 import os
 
-from anam import PersonaConfig, VideoFrame
+from anam import PersonaConfig
 from dotenv import load_dotenv
 from loguru import logger
 
