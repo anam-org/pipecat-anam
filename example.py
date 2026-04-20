@@ -54,7 +54,7 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=720,
         video_out_height=480,
-        video_out_bitrate=1_000_000,
+        video_out_bitrate=5_000_000,
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
@@ -63,6 +63,7 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=720,
         video_out_height=480,
+        video_out_bitrate=5_000_000,
     ),
 }
 

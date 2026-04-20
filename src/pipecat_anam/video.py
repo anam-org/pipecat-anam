@@ -46,6 +46,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessorSetup
 from pipecat.services.ai_service import AIService
+from pipecat.services.settings import ServiceSettings
 
 # Wait briefly for late TTSAudioRawFrames after TTSStoppedFrame before closing the sequence.
 TTS_TIMEOUT = 0.35  # seconds
@@ -90,7 +91,7 @@ class AnamVideoService(AIService):
             enable_session_replay: Whether to enable session recording on Anam's backend.
             **kwargs: Additional arguments passed to parent AIService.
         """
-        super().__init__(**kwargs)
+        super().__init__(settings=ServiceSettings(model=None), **kwargs)
         self._api_key = api_key
         self._persona_config = persona_config
         self._ice_servers = ice_servers
