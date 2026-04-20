@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.3 (2026-04-20)
+
+
 ## v0.0.3-alpha.4 (2026-04-20)
 
 ### Bug Fixes
