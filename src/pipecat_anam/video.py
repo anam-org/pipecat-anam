@@ -108,6 +108,8 @@ class AnamVideoService(AIService):
         self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = (
             asyncio.Queue()
         )
+        # avoids race when TTSStartedFrame arrives during interrupt
+        self._send_state_lock: asyncio.Lock = asyncio.Lock()
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
         self._session_ready_event = asyncio.Event()
@@ -267,8 +269,9 @@ class AnamVideoService(AIService):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, (TTSStartedFrame, TTSAudioRawFrame, TTSStoppedFrame)):
-            if self._send_task:
-                await self._queue.put(frame)
+            async with self._send_state_lock:
+                if self._send_task:
+                    await self._queue.put(frame)
             if isinstance(frame, TTSAudioRawFrame):
                 return  # Do not forward TTS audio downstream; Anam syncs TTS with video
 
@@ -381,15 +384,21 @@ class AnamVideoService(AIService):
             await self.push_error_frame(ErrorFrame(error=error_message))
 
     async def _handle_interruption(self) -> None:
-        """Handle interruption events by signaling the session to interrupt."""
-        if self._anam_session:
-            await self._anam_session.interrupt()
+        """Handle interruption events by signaling the session to interrupt.
 
-        await self._cancel_send_task()
-        if self._agent_audio_stream:
-            # End sequence resets the audio chunk sequence number in the SDK.
-            await self._agent_audio_stream.end_sequence()
-        await self._create_send_task()
+        Holds lock for the entire critical section to avoid race conditions.
+        """
+        async with self._send_state_lock:
+            try:
+                if self._anam_session:
+                    await self._anam_session.interrupt()
+
+                await self._cancel_send_task()
+                if self._agent_audio_stream:
+                    # End sequence resets the audio chunk sequence number in the SDK.
+                    await self._agent_audio_stream.end_sequence()
+            finally:
+                await self._create_send_task()
 
     async def _close_session(self):
         """Close the Anam client."""
@@ -444,11 +453,15 @@ class AnamVideoService(AIService):
                     if isinstance(frame, TTSStartedFrame):
                         if ctx != active_tts_context_id or waiting_for_end_sequence:
                             should_measure_ttfb = True
+                            logger.debug(f"Received TTSStartedFrame for context {ctx}")
                         active_tts_context_id = ctx
                         waiting_for_end_sequence = False
                     elif isinstance(frame, TTSAudioRawFrame):
                         if ctx != active_tts_context_id:
                             # includes late TTSAudioRawFrames after TTSStoppedFrame.
+                            logger.warning(
+                                f"Skipping audio chunk for context {ctx} (expected {active_tts_context_id})"
+                            )
                             continue
                         if frame.audio:
                             await self._agent_audio_stream.send_audio_chunk(frame.audio)
