@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.4-alpha.1 (2026-05-05)
+
+### Bug Fixes
+
+- Interrupt race condition with TTSStartedFrame
+  ([#14](https://github.com/anam-org/pipecat-anam/pull/14),
+  [`3b963df`](https://github.com/anam-org/pipecat-anam/commit/3b963dfa2933874e9e8cf9c8fae7408f1f88be22))
+
+
 ## v0.0.3 (2026-04-20)
 
 
