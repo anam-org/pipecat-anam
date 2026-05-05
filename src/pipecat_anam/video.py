@@ -108,8 +108,7 @@ class AnamVideoService(AIService):
         self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = (
             asyncio.Queue()
         )
-        # Serializes producers (process_frame TTS-frame enqueue) against the
-        # interrupt path that swaps _queue / _send_task in _handle_interruption.
+        # avoids race when TTSStartedFrame arrives during interrupt
         self._send_state_lock: asyncio.Lock = asyncio.Lock()
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
@@ -387,11 +386,7 @@ class AnamVideoService(AIService):
     async def _handle_interruption(self) -> None:
         """Handle interruption events by signaling the session to interrupt.
 
-        Holds ``_send_state_lock`` for the entire critical section so producers
-        in ``process_frame`` cannot enqueue against a queue that is about to be
-        replaced. The ``try/finally`` guarantees the new send task is created
-        even if ``interrupt()`` or ``end_sequence()`` raises, so the service
-        cannot get stuck without a consumer.
+        Holds lock for the entire critical section to avoid race conditions.
         """
         async with self._send_state_lock:
             try:
@@ -458,11 +453,13 @@ class AnamVideoService(AIService):
                     if isinstance(frame, TTSStartedFrame):
                         if ctx != active_tts_context_id or waiting_for_end_sequence:
                             should_measure_ttfb = True
+                            logger.debug(f"Received TTSStartedFrame for context {ctx}")
                         active_tts_context_id = ctx
                         waiting_for_end_sequence = False
                     elif isinstance(frame, TTSAudioRawFrame):
                         if ctx != active_tts_context_id:
                             # includes late TTSAudioRawFrames after TTSStoppedFrame.
+                            logger.warning(f"Skipping audio chunk for context {ctx} (expected {active_tts_context_id})")
                             continue
                         if frame.audio:
                             await self._agent_audio_stream.send_audio_chunk(frame.audio)
