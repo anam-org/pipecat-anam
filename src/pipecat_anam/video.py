@@ -459,7 +459,9 @@ class AnamVideoService(AIService):
                     elif isinstance(frame, TTSAudioRawFrame):
                         if ctx != active_tts_context_id:
                             # includes late TTSAudioRawFrames after TTSStoppedFrame.
-                            logger.warning(f"Skipping audio chunk for context {ctx} (expected {active_tts_context_id})")
+                            logger.warning(
+                                f"Skipping audio chunk for context {ctx} (expected {active_tts_context_id})"
+                            )
                             continue
                         if frame.audio:
                             await self._agent_audio_stream.send_audio_chunk(frame.audio)
