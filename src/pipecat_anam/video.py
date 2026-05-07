@@ -363,7 +363,7 @@ class AnamVideoService(AIService):
 
         Unblocks the pipeline to propagate StartFrame and allow audio to be ingested.
         """
-        logger.debug("Anam connection established")
+        logger.info(f"Anam session ready (session_id={self._anam_session.session_id})")
         self._session_ready_event.set()
 
     async def _on_connection_closed(self, code: str, reason: Optional[str]) -> None:
