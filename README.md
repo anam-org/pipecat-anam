@@ -78,6 +78,12 @@ pipeline = Pipeline([
 
 See [example.py](example.py) for a complete working example.
 
+## Initializing the Anam avatar session
+
+On initialization, the `AnamVideoService` starts a non-blocking connection to the Anam backend. The `StartFrame` is propagated downstream immediately, and the `AnamVideoService` buffers TTS frames while the avatar backend is warming up. Only when `SESSION_READY` is received, the `AnamVideoService` will start forwarding TTS audio. If we don't wait for `SESSION_READY`, the audio will be dropped at the backend, as the engine conservatively drops incoming TTS to avoid accumulating audio in the buffer that can cause a latency buildup.
+
+Up to and including v.0.0.3, the `AnamVideoService` blocked on `StartFrame` until the avatar backend was ready to receive audio. This results in higher pipeline startup latency as the other pipeline components (LLM/TTS/...) can only start and generate output after the avatar backend is available.
+
 ## Video Post-Filter Example
 
 The output transport scales the avatar resolution to the specified output resolution. This result in an amorphous scaling when the aspect ratios between output and avatar mismatch, i.e., the video is stretched or squeezed in on or both dimensions. To avoid this, you can apply a video post-processing filter to crop the avatar to the output aspect ratio.
