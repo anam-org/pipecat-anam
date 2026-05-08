@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.0.4-alpha.2 (2026-05-08)
+
+### Bug Fixes
+
+- Non blocking start
+  ([`48c1e1f`](https://github.com/anam-org/pipecat-anam/commit/48c1e1f20f5eb65e317900c7b68aa68c49784090))
+
+
 ## v0.0.4-alpha.1 (2026-05-05)
 
 ### Bug Fixes
