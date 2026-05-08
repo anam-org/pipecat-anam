@@ -105,6 +105,7 @@ class AnamVideoService(AIService):
         self._send_task: Optional[asyncio.Task] = None
         self._video_task: Optional[asyncio.Task] = None
         self._audio_task: Optional[asyncio.Task] = None
+        self._connect_task: Optional[asyncio.Task] = None
         self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = (
             asyncio.Queue()
         )
@@ -164,62 +165,49 @@ class AnamVideoService(AIService):
     async def start(self, frame: StartFrame):
         """Start the Anam video service and initialize the avatar session.
 
-        Creates an Anam session and creates tasks to forward audio/video. Blocks until
-        session_ready is received so audio is not dropped before backend is ready to receive audio.
-
         Args:
             frame: The start frame containing initialization parameters.
         """
         if not self._client:
             raise RuntimeError("Anam client not initialized. Call setup() first.")
+        await super().start(frame)
 
         self._session_ready_event.clear()
+        self._anam_resampler = AudioResampler("s16", "mono", frame.audio_out_sample_rate)
 
+        # Non-blocking connect.
+        self._connect_task = self.create_task(self._connect_session(frame))
+        # Start the send task to buffer TTS frames while avatar backend is warming up.
+        await self._create_send_task()
+
+    async def _connect_session(self, frame: StartFrame) -> None:
+        """Establish the Anam session and prepare audio/video tasks."""
         try:
-            # Block until session_ready so the backend can receive TTS
             logger.debug("Connecting to Anam Avatar service")
             self._anam_session = await self._client.connect_async(
                 session_options=SessionOptions(enable_session_replay=self._enable_session_replay)
             )
-            await asyncio.wait_for(self._session_ready_event.wait(), timeout=30)
-        except Exception as e:
-            error_msg = (
-                "Anam session connection timed out."
-                if isinstance(e, asyncio.TimeoutError)
-                else f"Error connecting to Anam: {e}"
+            audio_config = AgentAudioInputConfig(
+                encoding="pcm_s16le",
+                sample_rate=frame.audio_out_sample_rate,
+                channels=1,
             )
-            logger.error(error_msg)
-            await self._close_session()
-            await self.push_error_frame(ErrorFrame(error=error_msg, fatal=True))
-            raise
-
-        # Allow the pipeline to continue start up
-        await super().start(frame)
-
-        # Create agent audio input stream for sending TTS audio
-        audio_config = AgentAudioInputConfig(
-            encoding="pcm_s16le",
-            sample_rate=frame.audio_out_sample_rate,
-            channels=1,
-        )
-        try:
             self._agent_audio_stream = self._anam_session.create_agent_audio_input_stream(
                 audio_config
             )
+            self._video_task = self.create_task(self._consume_video_frames())
+            self._audio_task = self.create_task(self._consume_audio_frames())
+            # Watchdog: surface a fatal error if the avatar backend never signals readiness.
+            await asyncio.wait_for(self._session_ready_event.wait(), timeout=30)
         except Exception as e:
-            error_msg = f"Anam agent audio stream error: {e}"
+            if isinstance(e, asyncio.TimeoutError):
+                error_msg = "Anam session connection timed out."
+            else:
+                error_msg = f"Error connecting to Anam: {e}"
             logger.error(error_msg)
             await self._close_session()
             await self.push_error_frame(ErrorFrame(error=error_msg, fatal=True))
-            raise
-
-        # Set sample rate from StartFrame (set via PipelineParams).
-        self._anam_resampler = AudioResampler("s16", "mono", frame.audio_out_sample_rate)
-
-        # Create tasks for consuming video and audio frames
-        self._video_task = self.create_task(self._consume_video_frames())
-        self._audio_task = self.create_task(self._consume_audio_frames())
-        await self._create_send_task()
+            return
 
     async def stop(self, frame: EndFrame):
         """Stop the Anam video service gracefully.
@@ -241,6 +229,7 @@ class AnamVideoService(AIService):
 
     async def _cleanup(self):
         """Clean up resources: end conversation and cancel all tasks."""
+        await self._cancel_connect_task()
         await self._cancel_video_task()
         await self._cancel_audio_task()
         await self._cancel_send_task()
@@ -358,11 +347,14 @@ class AnamVideoService(AIService):
             await self.cancel_task(self._audio_task)
             self._audio_task = None
 
-    async def _on_session_ready(self) -> None:
-        """Handle session ready event (backend service is ready to receive audio).
+    async def _cancel_connect_task(self):
+        """Cancel the background connect task if it exists."""
+        if self._connect_task:
+            await self.cancel_task(self._connect_task)
+            self._connect_task = None
 
-        Unblocks the pipeline to propagate StartFrame and allow audio to be ingested.
-        """
+    async def _on_session_ready(self) -> None:
+        """Handle session ready event (backend service is ready to receive audio)."""
         logger.info(f"Anam session ready (session_id={self._anam_session.session_id})")
         self._session_ready_event.set()
 
@@ -431,6 +423,9 @@ class AnamVideoService(AIService):
         TTSStoppedFrame can arrive before the final TTSAudioRawFrame chunks, so once we see a
         stop frame we wait briefly for late audio before ending the current sequence.
         """
+        # Block until the avatar backend signals it can accept TTS.
+        await self._session_ready_event.wait()
+
         if not self._agent_audio_stream:
             logger.error("Agent audio stream not initialized")
             return
