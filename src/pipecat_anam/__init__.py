@@ -5,8 +5,18 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Anam video service for Pipecat."""
+"""Anam Pipecat plugin: in-process AnamVideoService + Daily-egress AnamTransport."""
 
+from pipecat_anam.transport import (
+    ANAM_AVATAR_USER_NAME,
+    AnamParams,
+    AnamTransport,
+)
 from pipecat_anam.video import AnamVideoService
 
-__all__ = ["AnamVideoService"]
+__all__ = [
+    "ANAM_AVATAR_USER_NAME",
+    "AnamParams",
+    "AnamTransport",
+    "AnamVideoService",
+]
