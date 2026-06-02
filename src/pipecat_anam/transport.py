@@ -207,7 +207,8 @@ class AnamTransportClient:
         self._connect_task = asyncio.create_task(self._connect_session())
 
     async def cleanup(self) -> None:
-        """Tear down the Daily client. Idempotent."""
+        """Tear down the Anam session lifecycle and the Daily client. Idempotent."""
+        await self.stop()
         if self._daily_client is not None:
             try:
                 await self._daily_client.cleanup()
