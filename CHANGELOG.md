@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.1.0-alpha.1 (2026-06-02)
+
+### Features
+
+- AnamTransport with egress to Daily room
+  ([`74bca34`](https://github.com/anam-org/pipecat-anam/commit/74bca34150c071f74ea55f6123fa9727c0798797))
+
+
 ## v0.0.4-alpha.2 (2026-05-08)
 
 ### Bug Fixes
