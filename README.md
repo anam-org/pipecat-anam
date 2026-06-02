@@ -84,6 +84,39 @@ On initialization, the `AnamVideoService` starts a non-blocking connection to th
 
 Up to and including v.0.0.3, the `AnamVideoService` blocked on `StartFrame` until the avatar backend was ready to receive audio. This results in higher pipeline startup latency as the other pipeline components (LLM/TTS/...) can only start and generate output after the avatar backend is available.
 
+## Publishing directly to Daily
+
+> [!WARNING]
+> Direct Daily egress is experimental and only supported for Cara-4 avatars.
+> The transport and signalling path will change in upcoming `anam` alpha
+> releases. Pin to an exact alpha if you build on this; expect breaking
+> changes between alphas.
+
+`AnamTransport` is a drop-in replacement for Pipecat's `DailyTransport` that has the Anam backend publish the avatar's synchronised audio + video **directly**
+into your Daily room. This avoids routing the avatar through the Pipecat bot and removes the bot's A/V receive-and-republish overhead.
+
+The Daily room is bring-your-own: provision the room and mint two separate meeting tokens before starting the pipeline.
+See the [Daily REST API docs](https://docs.daily.co/reference/rest-api) for `rooms` and `meeting-tokens` (or use [pipecat's Daily helpers](https://docs.pipecat.ai/server/services/transport/daily)).
+
+- `daily_avatar_token` — for the Anam backend. Its `user_name` claim **must match** `daily_avatar_user_name` (or leave claim empty). This is required for the transport to tell the avatar apart from end users.
+- `daily_bot_token` — for the Pipecat bot itself, used to capture the user's microphone for STT.
+
+Requires `anam>=0.5.0a1`.
+
+```python
+from anam import PersonaConfig
+from pipecat_anam import AnamTransport
+
+transport = AnamTransport(
+    api_key=os.environ["ANAM_API_KEY"],
+    persona_config=PersonaConfig(avatar_id=os.environ["ANAM_AVATAR_ID"]),
+    daily_room_url=os.environ["DAILY_ROOM_URL"],
+    daily_bot_token=os.environ["DAILY_BOT_TOKEN"],
+    daily_avatar_token=os.environ["DAILY_AVATAR_TOKEN"],
+    daily_avatar_user_name=os.environ["DAILY_AVATAR_USER_NAME"],
+)
+
+```
 ## Video Post-Filter Example
 
 The output transport scales the avatar resolution to the specified output resolution. This result in an amorphous scaling when the aspect ratios between output and avatar mismatch, i.e., the video is stretched or squeezed in on or both dimensions. To avoid this, you can apply a video post-processing filter to crop the avatar to the output aspect ratio.
@@ -128,6 +161,12 @@ uv run python example.py -t webrtc
 ```
 
 The bot will create a room (or use the built-in client) with a video avatar that responds to your voice.
+
+To run the Anam transport example:
+
+```bash
+uv run python example-anam-transport.py
+```
 
 To run the center-aspect post-filter example:
 

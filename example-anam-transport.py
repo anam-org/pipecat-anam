@@ -8,7 +8,7 @@
 """Voice assistant with an Anam avatar using direct Daily egress.
 
 The customer brings their own Daily room URL and two meeting tokens (minted
-before running this example). The Anam engine joins as the avatar publisher;
+before running this example). The Anam backend joins as the avatar publisher;
 the Pipecat bot joins separately to capture the user's microphone for STT.
 
 Required env vars:
@@ -16,7 +16,7 @@ Required env vars:
     ANAM_API_KEY           Anam API key.
     ANAM_AVATAR_ID         Avatar id (optional; defaults to a public sample).
     DAILY_ROOM_URL         https://your-domain.daily.co/<room>
-    DAILY_AVATAR_TOKEN     Meeting token for the Anam engine egress sidecar.
+    DAILY_AVATAR_TOKEN     Meeting token for the Anam backend.
     DAILY_BOT_TOKEN        Meeting token for the Pipecat bot (separate JWT).
     DEEPGRAM_API_KEY       Deepgram STT.
     CARTESIA_API_KEY       Cartesia TTS.
@@ -24,10 +24,9 @@ Required env vars:
 
 Optional env vars:
 
-    DAILY_USER_NAME        Display name for the Anam egress sidecar (default:
-                           anam-avatar). The avatar meeting token's user_name
-                           claim must match this value so the transport can
-                           tell the avatar apart from end users.
+    DAILY_AVATAR_USER_NAME Display name for the Anam backend (default: "anam-avatar"). 
+                           The avatar meeting token's user_name claim must match this value or leave it empty 
+                           so the transport can tell the avatar apart from end users.
 """
 
 import asyncio
@@ -71,7 +70,7 @@ async def main():
         daily_room_url=os.environ["DAILY_ROOM_URL"],
         daily_avatar_token=os.getenv("DAILY_AVATAR_TOKEN"),
         daily_bot_token=os.getenv("DAILY_BOT_TOKEN"),
-        daily_user_name=os.getenv("DAILY_USER_NAME"),
+        daily_avatar_user_name=os.getenv("DAILY_AVATAR_USER_NAME"),
     )
 
     stt = DeepgramSTTService(api_key=os.environ["DEEPGRAM_API_KEY"])

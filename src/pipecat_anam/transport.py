@@ -118,7 +118,7 @@ class AnamTransportClient:
         daily_room_url: str,
         daily_bot_token: Optional[str],
         daily_avatar_token: Optional[str],
-        daily_user_name: Optional[str],
+        daily_avatar_user_name: Optional[str],
         api_key: str,
         persona_config: PersonaConfig,
         api_base_url: Optional[str],
@@ -134,7 +134,7 @@ class AnamTransportClient:
         self._daily_room_url = daily_room_url
         self._daily_bot_token = daily_bot_token
         self._daily_avatar_token = daily_avatar_token
-        self._daily_user_name = daily_user_name or ANAM_AVATAR_USER_NAME
+        self._daily_avatar_user_name = daily_avatar_user_name or ANAM_AVATAR_USER_NAME
         self._api_key = api_key
         self._persona_config = replace(persona_config, enable_audio_passthrough=True)
         self._api_base_url = api_base_url
@@ -236,7 +236,7 @@ class AnamTransportClient:
                 daily=EgressDailyOptions(
                     room_url=self._daily_room_url,
                     token=self._daily_avatar_token,
-                    user_name=self._daily_user_name,
+                    user_name=self._daily_avatar_user_name,
                 ),
             ),
         )
@@ -355,7 +355,7 @@ class AnamTransportClient:
 
     @property
     def agent_audio_stream(self) -> Optional[AgentAudioInputStream]:
-        """The Anam engine's TTS PCM input stream, or None until start() completes."""
+        """The Anam backend's TTS PCM input stream, or None until start() completes."""
         return self._agent_audio_stream
 
     @property
@@ -470,9 +470,9 @@ class AnamInputTransport(BaseInputTransport):
 
 
 class AnamOutputTransport(BaseOutputTransport):
-    """Routes outbound TTS audio + interrupts to the Anam engine via WebSocket.
+    """Routes outbound TTS audio + interrupts to the Anam backend via WebSocket.
 
-    We bypass ``BaseOutputTransport`` and ingest TTS directly into the Anam engine to reduce latency
+    We bypass ``BaseOutputTransport`` and ingest TTS directly into the Anam backend to reduce latency
     and avoid HoL blocking on late chunks.
 
     Per-context filtering: every utterance carries a ``context_id`` on its lifecycle
@@ -649,7 +649,7 @@ class AnamTransport(BaseTransport):
         daily_room_url: str,
         daily_avatar_token: Optional[str] = None,
         daily_bot_token: Optional[str] = None,
-        daily_user_name: Optional[str] = None,
+        daily_avatar_user_name: Optional[str] = None,
         bot_name: str = PIPECAT_BOT_NAME,
         params: AnamParams = AnamParams(),
         api_base_url: Optional[str] = None,
@@ -669,8 +669,9 @@ class AnamTransport(BaseTransport):
                 is single-use; omit for public rooms.
             daily_bot_token: Daily meeting token for the Pipecat bot. Same constraints
                 as ``daily_avatar_token``.
-            daily_user_name: Display name the Anam avatar joins with (default
-                ``"anam-avatar"``).
+            daily_avatar_user_name: Display name the Anam avatar joins with
+                (default ``"anam-avatar"``). When minting ``daily_avatar_token``, either leave ``user_name`` empty or match the claim.
+                The transport uses it to tell the avatar apart from end users in participant events.
             bot_name: Display name for the Pipecat bot in the Daily room.
             params: Transport parameters. The default :class:`AnamParams` keeps the
                 Pipecat bot publish-disabled so it doesn't compete with the avatar.
@@ -679,14 +680,14 @@ class AnamTransport(BaseTransport):
         """
         super().__init__(input_name=input_name, output_name=output_name)
         self._params = params
-        self._daily_user_name = daily_user_name or ANAM_AVATAR_USER_NAME
+        self._daily_avatar_user_name = daily_avatar_user_name or ANAM_AVATAR_USER_NAME
 
         self._client = AnamTransportClient(
             bot_name=bot_name,
             daily_room_url=daily_room_url,
             daily_bot_token=daily_bot_token,
             daily_avatar_token=daily_avatar_token,
-            daily_user_name=self._daily_user_name,
+            daily_avatar_user_name=self._daily_avatar_user_name,
             api_key=api_key,
             persona_config=persona_config,
             api_base_url=api_base_url,
@@ -752,7 +753,7 @@ class AnamTransport(BaseTransport):
         """Return True if remote participant is the Anam avatar."""
         info = participant.get("info") or {}
         user_name = info.get("userName") or ""
-        return user_name == self._daily_user_name
+        return user_name == self._daily_avatar_user_name
 
     async def _on_participant_connected(self, participant: Mapping[str, Any]) -> None:
         if self._is_avatar_participant(participant):
