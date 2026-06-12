@@ -243,9 +243,9 @@ class AnamTransportClient:
                 return
             self._create_agent_audio_stream(frame)
         except Exception as exc:
-            logger.error(f"AnamTransportClient: start failed: {exc}")
             await self.stop()
-            raise
+            await self._on_error(f"AnamTransport failed to start: {exc}")
+            return
 
     async def _anam_connect(self) -> None:
         """Open the Anam signalling session."""
@@ -757,8 +757,7 @@ class AnamTransport(BaseTransport):
         """Propagate an unrecoverable transport error into the pipeline.
 
         Fired on Daily errors, unsolicited ``on_left``, Anam (non-Normal) signalling close,
-        or the Anam egress participant leaving while the pipeline is still running.
-        A viable avatar can no longer be produced: emit ``on_error`` and push ``ErrorFrame``.
+        or the Anam avatar leaving: emit ``on_error`` and push ``ErrorFrame``.
         """
         await self._call_event_handler("on_error", error)
         if self._input is not None:
@@ -766,7 +765,7 @@ class AnamTransport(BaseTransport):
         elif self._output is not None:
             await self._output.push_error(error_msg=error, fatal=True)
         else:
-            logger.error(f"AnamTransport: fatal error before input/output were wired: {error}")
+            logger.error(f"AnamTransport - fatal error: {error}")
 
     async def _on_connected(self, data: Mapping[str, Any]) -> None:
         await self._call_event_handler("on_connected", data)
