@@ -574,18 +574,17 @@ class AnamOutputTransport(BaseOutputTransport):
             self._end_sequence_task is None or self._end_sequence_task.done()
         ):
             self._bot_speaking = True
-            await self.push_frame(BotStartedSpeakingFrame())
+            await self.broadcast_frame(BotStartedSpeakingFrame)
         await stream.send_audio_chunk(bytes(frame.audio))
 
     async def _on_tts_stopped(self, frame: TTSStoppedFrame) -> None:
         ctx = self._normalize_context_id(getattr(frame, "context_id", None))
         if ctx != self._active_tts_context_id:
             return
-        # Push BotStoppedSpeaking both ways to unblock other plugins, relevant with function calling.
+        # Broadcast BotStoppedSpeaking to unblock upstream plugins (e.g. function calling).
         if self._bot_speaking:
             self._bot_speaking = False
-            await self.push_frame(BotStoppedSpeakingFrame())
-            await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+            await self.broadcast_frame(BotStoppedSpeakingFrame)
         self._end_sequence_task = asyncio.create_task(
             self._send_end_sequence_after_grace(self._active_tts_context_id)
         )
@@ -608,8 +607,7 @@ class AnamOutputTransport(BaseOutputTransport):
         self._active_tts_context_id = None
         if self._bot_speaking:
             self._bot_speaking = False
-            await self.push_frame(BotStoppedSpeakingFrame())
-            await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+            await self.broadcast_frame(BotStoppedSpeakingFrame)
 
     async def _cancel_end_sequence_task(self) -> None:
         task = self._end_sequence_task
@@ -754,11 +752,7 @@ class AnamTransport(BaseTransport):
         )
 
     async def _on_fatal_error(self, error: str) -> None:
-        """Propagate an unrecoverable transport error into the pipeline.
-
-        Fired on Daily errors, unsolicited ``on_left``, Anam (non-Normal) signalling close,
-        or the Anam avatar leaving: emit ``on_error`` and push ``ErrorFrame``.
-        """
+        """Propagate an unrecoverable transport error into the pipeline."""
         await self._call_event_handler("on_error", error)
         if self._input is not None:
             await self._input.push_error(error_msg=error, fatal=True)
