@@ -84,6 +84,9 @@ _OPT_IN_SUBSCRIPTION_PROFILE = {
 # Late-audio grace period after TTSStoppedFrame before we send `end_sequence`.
 END_OF_UTTERANCE_TIMEOUT = 0.35  # seconds
 
+# Hard ceiling for detecting the avatar joined the Daily room.
+AVATAR_CONNECT_TIMEOUT = 30.0  # seconds
+
 
 class AnamParams(DailyParams):
     """Configuration parameters for the Anam transport.
@@ -105,9 +108,8 @@ class AnamParams(DailyParams):
 class AnamTransportClient:
     """Owns one Daily room participant + one Anam SDK session.
 
-    - :meth:`setup` instantiates the Daily client and starts the Anam connect
-      (HTTP + WS + WebRTC + ``SESSION_READY``) in the background to overlap with pipeline init.
-    - :meth:`start` awaits that connect, creates the agent audio input stream and joins Daily.
+    - :meth:`setup` wires up the Daily client.
+    - :meth:`start` connects to Anam, joins the Daily room in parallel, then waits for the avatar.
     - :meth:`stop` leaves Daily and closes the Anam session.
     """
 
@@ -121,8 +123,8 @@ class AnamTransportClient:
         daily_avatar_user_name: Optional[str],
         api_key: str,
         persona_config: PersonaConfig,
-        api_base_url: Optional[str],
-        api_version: Optional[str],
+        api_base_url: str,
+        api_version: str,
         ice_servers: Optional[list[dict]],
         params: AnamParams,
         on_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
@@ -136,7 +138,7 @@ class AnamTransportClient:
         self._daily_avatar_token = daily_avatar_token
         self._daily_avatar_user_name = daily_avatar_user_name or ANAM_AVATAR_USER_NAME
         self._api_key = api_key
-        self._persona_config = replace(persona_config, enable_audio_passthrough=True)
+        self._persona_config = persona_config
         self._api_base_url = api_base_url
         self._api_version = api_version
         self._ice_servers = ice_servers
@@ -148,16 +150,17 @@ class AnamTransportClient:
 
         self._daily_client: Optional[DailyTransportClient] = None
         self._session: Optional[Session] = None
-        self._session_ready_event = asyncio.Event()
         self._agent_audio_stream: Optional[AgentAudioInputStream] = None
-        self._connect_task: Optional[asyncio.Task[None]] = None
+        # Set when the avatar participant joins Daily (name match).
+        self._avatar_connected_event = asyncio.Event()
         # Distinguishes intentional shutdown from an unexpected disconnect.
         self._stop_called: bool = False
 
     async def setup(self, setup: FrameProcessorSetup) -> None:
-        """Wire up the Daily client and begin Anam SDK connect in the background."""
+        """Wire up the Daily client."""
         if self._daily_client is not None:
             return
+        logger.debug("AnamTransportClient: setting up Daily client")
         daily_callbacks = DailyCallbacks(
             on_active_speaker_changed=partial(
                 self._on_handle_callback, "on_active_speaker_changed"
@@ -201,11 +204,6 @@ class AnamTransportClient:
         )
         await self._daily_client.setup(setup)
 
-        # Run the Anam SDK connect (HTTP + WS + WebRTC + SESSION_READY, ~1-3s)
-        # in the background so it overlaps with the rest of pipeline init.
-        # start() awaits this task before joining Daily.
-        self._connect_task = asyncio.create_task(self._connect_session())
-
     async def cleanup(self) -> None:
         """Tear down the Anam session lifecycle and the Daily client. Idempotent."""
         await self.stop()
@@ -215,19 +213,52 @@ class AnamTransportClient:
             except Exception as exc:
                 logger.error(f"AnamTransportClient: error during Daily cleanup: {exc}")
 
-    async def _connect_session(self) -> None:
-        """Open an Anam SDK session and wait until ``SESSION_READY`` fires."""
-        self._session_ready_event.clear()
+    async def start(self, frame: StartFrame) -> None:
+        """Connect to Anam, join Daily in parallel, then wait for the avatar."""
+        if self._daily_client is None:
+            raise RuntimeError("AnamTransportClient not initialized. Call setup() first.")
+        logger.debug("AnamTransportClient: Connecting to Anam Avatar service")
+        anam_task = asyncio.create_task(self._anam_connect())
+        daily_task = asyncio.create_task(self._daily_start_join(frame))
+        try:
+            try:
+                await asyncio.gather(anam_task, daily_task)
+            except BaseException:
+                anam_task.cancel()
+                daily_task.cancel()
+                # Drain so cancellation actually completes and any session that
+                # was assigned to self._session is visible to stop().
+                await asyncio.gather(anam_task, daily_task, return_exceptions=True)
+                raise
+            try:
+                await asyncio.wait_for(
+                    self._avatar_connected_event.wait(),
+                    timeout=AVATAR_CONNECT_TIMEOUT,
+                )
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(
+                    f"AnamTransport: avatar did not join Daily within {AVATAR_CONNECT_TIMEOUT:.0f}s"
+                ) from exc
+            if self._stop_called:
+                return
+            self._create_agent_audio_stream(frame)
+        except Exception as exc:
+            logger.error(f"AnamTransportClient: start failed: {exc}")
+            await self.stop()
+            raise
+
+    async def _anam_connect(self) -> None:
+        """Open the Anam signalling session."""
         anam_client = AnamClient(
             api_key=self._api_key,
             persona_config=self._persona_config,
             options=ClientOptions(
-                api_base_url=self._api_base_url or "https://api.anam.ai",
-                api_version=self._api_version or "v1",
+                api_base_url=self._api_base_url,
+                api_version=self._api_version,
                 ice_servers=self._ice_servers,
+                client_label="Pipecat:AnamTransport",
             ),
         )
-        anam_client.add_listener(AnamEvent.SESSION_READY, self._on_session_ready)
         anam_client.add_listener(AnamEvent.CONNECTION_CLOSED, self._on_connection_closed)
         # Session replay is not supported for AnamTransport avatars.
         session_options = SessionOptions(
@@ -242,27 +273,18 @@ class AnamTransportClient:
             ),
         )
         self._session = await anam_client.connect_async(session_options=session_options)
-        try:
-            await asyncio.wait_for(self._session_ready_event.wait(), timeout=30)
-        except asyncio.TimeoutError:
-            logger.error("AnamTransportClient: timed out waiting for SESSION_READY")
-            self._session = None
-            raise
 
-    async def start(self, frame: StartFrame) -> None:
-        """Await the background Anam connect, then join Daily."""
-        if self._daily_client is None:
-            raise RuntimeError("AnamTransportClient not initialized. Call setup() first.")
-        logger.debug("AnamTransportClient: Connecting to Anam Avatar service")
-        try:
-            await asyncio.gather(
-                self._await_anam_connect_and_create_stream(frame),
-                self._daily_start_join(frame),
+    def _create_agent_audio_stream(self, frame: StartFrame) -> None:
+        if self._session is None:
+            raise RuntimeError(
+                "Anam session was not established before creating agent audio stream"
             )
-        except Exception as exc:
-            logger.error(f"AnamTransportClient: start failed: {exc}")
-            await self.stop()
-            raise
+        audio_config = AgentAudioInputConfig(
+            encoding="pcm_s16le",
+            sample_rate=frame.audio_out_sample_rate,
+            channels=1,
+        )
+        self._agent_audio_stream = self._session.create_agent_audio_input_stream(audio_config)
 
     async def _daily_start_join(self, frame: StartFrame) -> None:
         """Start the Daily client and join the room."""
@@ -276,20 +298,6 @@ class AnamTransportClient:
             raise RuntimeError(f"Failed to join Daily room {self._daily_room_url}")
         await self.update_subscriptions(profile_settings=_OPT_IN_SUBSCRIPTION_PROFILE)
 
-    async def _await_anam_connect_and_create_stream(self, frame: StartFrame) -> None:
-        """Await the connect task started in setup(), then create the TTS stream."""
-        if self._connect_task is None:
-            raise RuntimeError("Anam SDK connect was not started. Call setup() first.")
-        await self._connect_task
-        if self._session is None:
-            raise RuntimeError("Anam session was not established before start().")
-        audio_config = AgentAudioInputConfig(
-            encoding="pcm_s16le",
-            sample_rate=frame.audio_out_sample_rate,
-            channels=1,
-        )
-        self._agent_audio_stream = self._session.create_agent_audio_input_stream(audio_config)
-
     @property
     def stop_called(self) -> bool:
         """Whether :meth:`stop` has been entered."""
@@ -300,16 +308,7 @@ class AnamTransportClient:
         if self._stop_called:
             return
         self._stop_called = True
-
-        # Cancel any in-flight background connect from setup() that never got
-        # awaited (e.g. pipeline torn down before start()).
-        if self._connect_task is not None and not self._connect_task.done():
-            self._connect_task.cancel()
-            try:
-                await self._connect_task
-            except (asyncio.CancelledError, Exception):
-                pass
-        self._connect_task = None
+        self._avatar_connected_event.clear()
 
         if self._daily_client is not None:
             try:
@@ -339,14 +338,8 @@ class AnamTransportClient:
             f"AnamTransportClient[Daily callback] {event_name} args={args} kwargs={kwargs}"
         )
 
-    async def _on_session_ready(self) -> None:
-        session_id = self._session.session_id if self._session is not None else "(pending)"
-        logger.debug(f"AnamTransportClient: Anam SESSION_READY (Anam Session ID: {session_id})")
-        self._session_ready_event.set()
-
     async def _on_connection_closed(self, code: str, reason: Optional[str]) -> None:
         self._session = None
-        self._session_ready_event.clear()
 
         # NORMAL is Anam's WS-protocol "graceful close" code.
         if code == ConnectionClosedCode.NORMAL.value:
@@ -356,13 +349,22 @@ class AnamTransportClient:
 
     @property
     def agent_audio_stream(self) -> Optional[AgentAudioInputStream]:
-        """The Anam backend's TTS PCM input stream, or None until start() completes."""
+        """The Anam backend's TTS PCM input stream, or None until the avatar joins the Daily room."""
         return self._agent_audio_stream
 
     @property
     def session(self) -> Optional[Session]:
         """The active Anam SDK session, or None until start() completes / after stop()."""
         return self._session
+
+    @property
+    def avatar_connected_event(self) -> asyncio.Event:
+        """Set when the avatar participant joins Daily (``on_avatar_connected``)."""
+        return self._avatar_connected_event
+
+    def signal_avatar_connected(self) -> None:
+        """Unblock :meth:`start` once the avatar participant is present. Idempotent."""
+        self._avatar_connected_event.set()
 
     # --- Daily-side helpers exposed to input/output transports ----------------------
 
@@ -548,6 +550,7 @@ class AnamOutputTransport(BaseOutputTransport):
     # --- TTS state machine ------------------------------------------------------
 
     async def _on_tts_started(self, frame: TTSStartedFrame) -> None:
+        await self._cancel_end_sequence_task()
         ctx = self._normalize_context_id(getattr(frame, "context_id", None))
         if ctx != self._active_tts_context_id:
             logger.debug(f"AnamOutputTransport: TTS context started: {ctx}")
@@ -566,7 +569,10 @@ class AnamOutputTransport(BaseOutputTransport):
         stream = self._client.agent_audio_stream
         if stream is None:
             return
-        if not self._bot_speaking:
+        # Don't re-open speaking state for late chunks arriving inside the grace period.
+        if not self._bot_speaking and (
+            self._end_sequence_task is None or self._end_sequence_task.done()
+        ):
             self._bot_speaking = True
             await self.push_frame(BotStartedSpeakingFrame())
         await stream.send_audio_chunk(bytes(frame.audio))
@@ -575,12 +581,17 @@ class AnamOutputTransport(BaseOutputTransport):
         ctx = self._normalize_context_id(getattr(frame, "context_id", None))
         if ctx != self._active_tts_context_id:
             return
-        # Schedule a end_sequence with waiting for grace period.
+        # Push BotStoppedSpeaking both ways to unblock other plugins, relevant with function calling.
+        if self._bot_speaking:
+            self._bot_speaking = False
+            await self.push_frame(BotStoppedSpeakingFrame())
+            await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
         self._end_sequence_task = asyncio.create_task(
             self._send_end_sequence_after_grace(self._active_tts_context_id)
         )
 
     async def _on_interruption(self) -> None:
+        await self._cancel_end_sequence_task()
         session = self._client.session
         if session is not None:
             try:
@@ -598,9 +609,19 @@ class AnamOutputTransport(BaseOutputTransport):
         if self._bot_speaking:
             self._bot_speaking = False
             await self.push_frame(BotStoppedSpeakingFrame())
+            await self.push_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+
+    async def _cancel_end_sequence_task(self) -> None:
+        task = self._end_sequence_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     async def _send_end_sequence_after_grace(self, context_id: Optional[str]) -> None:
-        # Cancels implicitly if context_id is changed or the audio stream is not available.
         await asyncio.sleep(END_OF_UTTERANCE_TIMEOUT)
         if self._active_tts_context_id != context_id:
             return
@@ -613,15 +634,12 @@ class AnamOutputTransport(BaseOutputTransport):
             logger.error(f"AnamOutputTransport: end_sequence failed: {exc}")
             return
         self._active_tts_context_id = None
-        if self._bot_speaking:
-            self._bot_speaking = False
-            await self.push_frame(BotStoppedSpeakingFrame())
 
     @staticmethod
     def _normalize_context_id(context_id: Optional[str]) -> str:
         """Map ``None`` context_ids (TTS services that don't emit one) to a sentinel
         so the state machine's equality checks still work."""
-        return context_id if context_id is not None else "__legacy__"
+        return context_id if context_id is not None else "_no_context"
 
 
 class AnamTransport(BaseTransport):
@@ -653,8 +671,8 @@ class AnamTransport(BaseTransport):
         daily_avatar_user_name: Optional[str] = None,
         bot_name: str = PIPECAT_BOT_NAME,
         params: AnamParams = AnamParams(),
-        api_base_url: Optional[str] = None,
-        api_version: Optional[str] = None,
+        api_base_url: str = "https://api.anam.ai",
+        api_version: str = "v1",
         ice_servers: Optional[list[dict]] = None,
         input_name: Optional[str] = None,
         output_name: Optional[str] = None,
@@ -663,22 +681,27 @@ class AnamTransport(BaseTransport):
 
         Args:
             api_key: Anam API key.
-            persona_config: Avatar persona configuration. Forcing ``enable_audio_passthrough`` to True.
+            persona_config: Avatar persona configuration. ``enable_audio_passthrough`` must be True.
             daily_room_url: Customer-supplied Daily room URL that both the Anam
                 avatar and the Pipecat bot will join.
             daily_avatar_token: Daily meeting token for the Anam avatar. Each token
                 is single-use; omit for public rooms.
             daily_bot_token: Daily meeting token for the Pipecat bot. Same constraints
                 as ``daily_avatar_token``.
-            daily_avatar_user_name: Display name the Anam avatar joins with
-                (default ``"anam-avatar"``). When minting ``daily_avatar_token``, either leave ``user_name`` empty or match the claim.
-                The transport uses it to tell the avatar apart from end users in participant events.
+            daily_avatar_user_name: Display name the avatar joins Daily with;
+                must match the ``user_name`` claim of ``daily_avatar_token`` (if any).
             bot_name: Display name for the Pipecat bot in the Daily room.
             params: Transport parameters. The default :class:`AnamParams` keeps the
                 Pipecat bot publish-disabled so it doesn't compete with the avatar.
             api_base_url, api_version, ice_servers: Pass-through to the Anam SDK.
             input_name, output_name: Optional Pipecat transport names.
+
+        Raises:
+            ValueError: if ``persona_config.enable_audio_passthrough`` is not True.
         """
+        # ``enable_audio_passthrough`` must be true for the avatar to be driven by your TTS.
+        if not persona_config.enable_audio_passthrough:
+            raise ValueError("AnamTransport requires PersonaConfig(enable_audio_passthrough=True).")
         super().__init__(input_name=input_name, output_name=output_name)
         self._params = params
         self._daily_avatar_user_name = daily_avatar_user_name or ANAM_AVATAR_USER_NAME
@@ -690,7 +713,7 @@ class AnamTransport(BaseTransport):
             daily_avatar_token=daily_avatar_token,
             daily_avatar_user_name=self._daily_avatar_user_name,
             api_key=api_key,
-            persona_config=persona_config,
+            persona_config=replace(persona_config, enable_audio_passthrough=True),
             api_base_url=api_base_url,
             api_version=api_version,
             ice_servers=ice_servers,
@@ -758,6 +781,7 @@ class AnamTransport(BaseTransport):
 
     async def _on_participant_connected(self, participant: Mapping[str, Any]) -> None:
         if self._is_avatar_participant(participant):
+            self._client.signal_avatar_connected()
             await self._call_event_handler("on_avatar_connected", participant)
             return
 

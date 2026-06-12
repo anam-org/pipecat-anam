@@ -38,15 +38,15 @@ If you are building your own pipeline, install only the Pipecat extras you need.
 
 - [Anam API key](https://lab.anam.ai)
 - API keys for STT, TTS, and LLM (e.g., Deepgram, Cartesia, Google)
-- [Daily.co](https://www.daily.co/) API key for WebRTC transport (optional)
+- A [Daily.co](https://www.daily.co/) room and (optional) meeting tokens for Daily WebRTC transport — see [Auto-provisioning the Daily room](#auto-provisioning-the-daily-room).
 
 ## Usage with Pipecat Pipeline
 
 The `AnamVideoService` wraps around Anam's Python SDK for a seamless integration with Pipecat to create conversational AI applications where an Anam avatar provides synchronized video and audio output while your application handles the conversation logic. The AnamVideoService iterates over the (decoded) audio and video frames from Anam and passes them to the next service in the pipeline.
 
-`enable_audio_passthrough=True` bypasses Anam's orchestration layer and renders the avatar directly from TTS audio.
+`enable_audio_passthrough=True` renders the avatar directly from your TTS audio (no separate Anam-side LLM or voice generation).
 
-`enable_session_replay=False` disables session recording on Anam's backend.
+`enable_session_replay=False` disables Anam-side session recording.
 
 ```python
 from anam import PersonaConfig
@@ -76,13 +76,13 @@ pipeline = Pipeline([
 ])
 ```
 
-See [example.py](example.py) for a complete working example.
+See [examples/video-avatar-anam-video-service.py](examples/video-avatar-anam-video-service.py) for a complete working example.
 
 ## Initializing the Anam avatar session
 
-On initialization, the `AnamVideoService` starts a non-blocking connection to the Anam backend. The `StartFrame` is propagated downstream immediately, and the `AnamVideoService` buffers TTS frames while the avatar backend is warming up. Only when `SESSION_READY` is received, the `AnamVideoService` will start forwarding TTS audio. If we don't wait for `SESSION_READY`, the audio will be dropped at the backend, as the engine conservatively drops incoming TTS to avoid accumulating audio in the buffer that can cause a latency buildup.
+`AnamVideoService` opens its connection to the Anam Backend asynchronously. The `StartFrame` is propagated downstream immediately so the rest of the pipeline (LLM/TTS/...) can warm up in parallel. TTS audio starts forwarding once the avatar is ready; any TTS produced before then is held back so it doesn't get dropped on the way in or accumulates latency.
 
-Up to and including v.0.0.3, the `AnamVideoService` blocked on `StartFrame` until the avatar backend was ready to receive audio. This results in higher pipeline startup latency as the other pipeline components (LLM/TTS/...) can only start and generate output after the avatar backend is available.
+Prior to v0.0.4, `AnamVideoService` blocked on `StartFrame` until the avatar was ready, which serialised pipeline startup. The async path keeps initial response latency low.
 
 ## Publishing directly to Daily
 
@@ -92,13 +92,12 @@ Up to and including v.0.0.3, the `AnamVideoService` blocked on `StartFrame` unti
 > releases. Pin to an exact alpha if you build on this; expect breaking
 > changes between alphas.
 
-`AnamTransport` is a drop-in replacement for Pipecat's `DailyTransport` that has the Anam backend publish the avatar's synchronised audio + video **directly**
-into your Daily room. This avoids routing the avatar through the Pipecat bot and removes the bot's A/V receive-and-republish overhead.
+`AnamTransport` is a drop-in replacement for Pipecat's `DailyTransport`. The Anam Backend publishes the avatar's synchronised audio and video **directly** into your Daily room, so the Pipecat bot doesn't have to receive and re-publish the avatar's A/V tracks.
 
 The Daily room is bring-your-own: provision the room and mint two separate meeting tokens before starting the pipeline.
 See the [Daily REST API docs](https://docs.daily.co/reference/rest-api) for `rooms` and `meeting-tokens` (or use [pipecat's Daily helpers](https://docs.pipecat.ai/server/services/transport/daily)).
 
-- `daily_avatar_token` — for the Anam backend. Its `user_name` claim **must match** `daily_avatar_user_name` (or leave claim empty). This is required for the transport to tell the avatar apart from end users.
+- `daily_avatar_token` — for the Anam Backend (optional, but required for private rooms). If a `user_name` claim is set, it **must match** `daily_avatar_user_name` (or leave the claim empty). This lets the transport tell the avatar apart from end users. The transport will not forward TTS until the avatar has joined.
 - `daily_bot_token` — for the Pipecat bot itself, used to capture the user's microphone for STT.
 
 Requires `anam==0.5.0a1` (pinned exactly — see the SDK's experimental-alpha warning).
@@ -109,29 +108,73 @@ from pipecat_anam import AnamTransport
 
 transport = AnamTransport(
     api_key=os.environ["ANAM_API_KEY"],
-    persona_config=PersonaConfig(avatar_id=os.environ["ANAM_AVATAR_ID"]),
+    persona_config=PersonaConfig(
+        avatar_id=os.environ["ANAM_AVATAR_ID"],
+        # Direct Daily egress requires a Cara-4 avatar; stock avatars default to cara-3.
+        avatar_model="cara-4-latest",
+        enable_audio_passthrough=True,
+    ),
     daily_room_url=os.environ["DAILY_ROOM_URL"],
     daily_bot_token=os.environ["DAILY_BOT_TOKEN"],
     daily_avatar_token=os.environ["DAILY_AVATAR_TOKEN"],
     daily_avatar_user_name=os.environ["DAILY_AVATAR_USER_NAME"],
 )
-
 ```
+
+### Auto-provisioning the Daily room
+
+`AnamTransport` does not mint Daily rooms or tokens itself. If you'd rather provision a room programmatically than pre-create one, use Pipecat's [`DailyRESTHelper`](https://docs.pipecat.ai/server/services/transport/daily) with your `DAILY_API_KEY` to create the room and the two meeting tokens before constructing the transport:
+
+```python
+import aiohttp
+from pipecat.transports.daily.utils import (
+    DailyMeetingTokenParams,
+    DailyMeetingTokenProperties,
+    DailyRESTHelper,
+    DailyRoomParams,
+)
+
+async with aiohttp.ClientSession() as session:
+    helper = DailyRESTHelper(
+        daily_api_key=os.environ["DAILY_API_KEY"],
+        aiohttp_session=session,
+    )
+    room = await helper.create_room(DailyRoomParams())
+    avatar_token = await helper.get_token(
+        room.url,
+        params=DailyMeetingTokenParams(
+            properties=DailyMeetingTokenProperties(user_name="anam-avatar"),
+        ),
+    )
+    bot_token = await helper.get_token(room.url)
+
+    transport = AnamTransport(
+        api_key=os.environ["ANAM_API_KEY"],
+        persona_config=PersonaConfig(
+            avatar_id=os.environ["ANAM_AVATAR_ID"],
+            # Direct Daily egress requires a Cara-4 avatar; stock avatars default to cara-3.
+            avatar_model="cara-4-latest",
+            enable_audio_passthrough=True,
+        ),
+        daily_room_url=room.url,
+        daily_avatar_token=avatar_token,
+        daily_bot_token=bot_token,
+    )
+```
+
 ## Video Post-Filter Example
 
-The output transport scales the avatar resolution to the specified output resolution. This result in an amorphous scaling when the aspect ratios between output and avatar mismatch, i.e., the video is stretched or squeezed in on or both dimensions. To avoid this, you can apply a video post-processing filter to crop the avatar to the output aspect ratio.
+The output transport scales the avatar resolution to the configured output resolution. When the aspect ratios mismatch the video is stretched or squeezed. To avoid this, apply a video post-processing filter that crops the avatar to the output aspect ratio.
 
-[`example_video_post_filter.py`](example_video_post_filter.py) adds a video
-post processing filter after `AnamVideoService`:
+[`examples/video-avatar-anam-postfilter.py`](examples/video-avatar-anam-postfilter.py) adds a `CenterAspectCropFilter` after `AnamVideoService`:
 
-- It works on `OutputImageRawFrame` and does not depend on Anam internals.
-- It assumes packed RGB24 bytes (`format="RGB"`).
-- It performs a centered crop to match the configured output aspect ratio.
-- It does not scale. Pipecat output transport can still scale as needed.
-- It is a no-op when source and target aspect ratios already match.
+- Works on `OutputImageRawFrame`; does not depend on Anam internals.
+- Assumes packed RGB24 bytes (`format="RGB"`).
+- Performs a centered crop to match the configured output aspect ratio.
+- Does not scale. Pipecat's output transport can still scale as needed.
+- No-op when source and target aspect ratios already match.
 
-The reusable helper lives in [`examples/video_post_filter.py`](examples/video_post_filter.py).
-The same helper can be used with any Pipecat service producing `OutputImageRawFrame`.
+The filter is self-contained in that file and can be lifted into any Pipecat pipeline that produces `OutputImageRawFrame`.
 
 ## Running the Example
 
@@ -148,34 +191,34 @@ cp env.example .env
 # Edit .env with your API keys
 ```
 
-3. Run:
+3. Run the `AnamVideoService` example (Pipecat's built-in transports):
 
 ```bash
-uv run python example.py -t daily
+uv run python examples/video-avatar-anam-video-service.py -t daily
 ```
 
 Or with the built-in WebRTC transport:
 
 ```bash
-uv run python example.py -t webrtc
+uv run python examples/video-avatar-anam-video-service.py -t webrtc
 ```
 
-The bot will create a room (or use the built-in client) with a video avatar that responds to your voice.
-
-To run the Anam transport example:
+To run the `AnamTransport` example (direct Daily egress, Deepgram + Google + Cartesia):
 
 ```bash
-uv run python example-anam-transport.py
+uv run python examples/video-avatar-anam-transport.py
 ```
 
-To run the center-aspect post-filter example:
+To run the center-aspect post-filter example with the WebRTC transport:
 
 ```bash
-uv run python example_video_post_filter.py
+uv run python examples/video-avatar-anam-postfilter.py -t webrtc
 ```
-or with the Daily transport:
+
+Or with the Daily transport:
+
 ```bash
-uv run python example_video_post_filter.py -t daily
+uv run python examples/video-avatar-anam-postfilter.py -t daily
 ```
 
 ## Compatibility

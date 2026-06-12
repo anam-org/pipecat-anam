@@ -134,6 +134,7 @@ class AnamVideoService(AIService):
                 api_base_url=self._api_base_url or "https://api.anam.ai",
                 ice_servers=self._ice_servers,
                 api_version=self._api_version,
+                client_label="Pipecat:AnamVideoService",
             ),
         )
 

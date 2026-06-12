@@ -5,28 +5,28 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Voice assistant with an Anam avatar using direct Daily egress.
+"""Minimal Pipecat voice assistant with an Anam avatar over Daily egress.
 
-The customer brings their own Daily room URL and two meeting tokens (minted
-before running this example). The Anam backend joins as the avatar publisher;
-the Pipecat bot joins separately to capture the user's microphone for STT.
+Demonstrates :class:`AnamTransport`: a customer-supplied Daily room, a
+Deepgram STT / Google LLM / Cartesia TTS pipeline, and the avatar published
+directly into the room by the Anam Backend.
 
 Required env vars:
 
     ANAM_API_KEY           Anam API key.
-    ANAM_AVATAR_ID         Avatar id (optional; defaults to a public sample).
     DAILY_ROOM_URL         https://your-domain.daily.co/<room>
-    DAILY_AVATAR_TOKEN     Meeting token for the Anam backend.
-    DAILY_BOT_TOKEN        Meeting token for the Pipecat bot (separate JWT).
+    DAILY_AVATAR_TOKEN     Daily meeting token for the Anam Avatar.
+    DAILY_BOT_TOKEN        Daily meeting token for the Pipecat bot.
     DEEPGRAM_API_KEY       Deepgram STT.
     CARTESIA_API_KEY       Cartesia TTS.
     GOOGLE_API_KEY         Google Gemini LLM.
 
 Optional env vars:
 
-    DAILY_AVATAR_USER_NAME Display name for the Anam backend (default: "anam-avatar"). 
-                           The avatar meeting token's user_name claim must match this value or leave it empty 
-                           so the transport can tell the avatar apart from end users.
+    ANAM_AVATAR_ID         Avatar id (defaults to a public sample).
+    DAILY_AVATAR_USER_NAME Avatar display name. Must match the ``user_name``
+                           claim in ``DAILY_AVATAR_TOKEN``. Defaults to
+                           ``"anam-avatar"``.
 """
 
 import asyncio
@@ -42,8 +42,8 @@ from pipecat.frames.frames import LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContext,
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
@@ -62,10 +62,11 @@ logger.add(sys.stderr, level="DEBUG")
 async def main():
     transport = AnamTransport(
         api_key=os.environ["ANAM_API_KEY"],
-        api_base_url=os.getenv("ANAM_API_BASE_URL", "https://api.anam.ai"),
-        api_version="v1",
         persona_config=PersonaConfig(
             avatar_id=os.getenv("ANAM_AVATAR_ID", "071b0286-4cce-4808-bee2-e642f1062de3"),
+            # Direct Daily egress requires a Cara-4 avatar; stock avatars default to cara-3.
+            avatar_model="cara-4-latest",
+            enable_audio_passthrough=True,
         ),
         daily_room_url=os.environ["DAILY_ROOM_URL"],
         daily_avatar_token=os.getenv("DAILY_AVATAR_TOKEN"),
@@ -85,7 +86,7 @@ async def main():
     llm = GoogleLLMService(
         api_key=os.environ["GOOGLE_API_KEY"],
         settings=GoogleLLMService.Settings(
-            system_instruction="You are a helpful assistant in a voice conversation. Your responses will be spoken aloud, so avoid emojis, bullet points, or other formatting that can't be spoken. Respond to what the user said in a creative, helpful, and brief way.",
+            system_instruction="You are a helpful assistant. Your output will be spoken aloud, so avoid special characters that can't easily be spoken, such as emojis or bullet points. Be succinct and respond to what the user said in a creative and helpful way.",
         ),
     )
 
@@ -110,16 +111,10 @@ async def main():
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            audio_in_sample_rate=16000,
-            audio_out_sample_rate=24000,
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
     )
-
-    @transport.event_handler("on_connected")
-    async def on_connected(transport, data):
-        logger.info(f"Pipecat bot joined Daily room: {os.environ['DAILY_ROOM_URL']}")
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, participant):
@@ -127,7 +122,7 @@ async def main():
         context.add_message(
             {
                 "role": "developer",
-                "content": "Start by greeting the user and ask how you can help.",
+                "content": "Start by saying 'Hello' and then a short greeting.",
             }
         )
         await task.queue_frames([LLMRunFrame()])
@@ -139,11 +134,11 @@ async def main():
 
     @transport.event_handler("on_avatar_connected")
     async def on_avatar_connected(transport, participant):
-        logger.info("Anam avatar connected (joined Daily room)")
+        logger.info("Avatar connected")
 
     @transport.event_handler("on_avatar_disconnected")
     async def on_avatar_disconnected(transport, participant, reason):
-        logger.info(f"Anam avatar disconnected. Reason: {reason}")
+        logger.info(f"Avatar disconnected. Reason: {reason}")
 
     runner = PipelineRunner()
 
