@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.1.0-alpha.2 (2026-06-12)
+
+### Bug Fixes
+
+- AnamTransport connection ([#18](https://github.com/anam-org/pipecat-anam/pull/18),
+  [`1821753`](https://github.com/anam-org/pipecat-anam/commit/182175391e543c93e73d146e9094f4989f141a5a))
+
+
 ## v0.1.0-alpha.1 (2026-06-02)
 
 ### Features
