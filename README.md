@@ -162,6 +162,16 @@ async with aiohttp.ClientSession() as session:
     )
 ```
 
+### Using the Pipecat runner (recommended for Pipecat Cloud)
+
+When the Pipecat runner dispatches the session (locally via
+`pipecat.runner.run.main`, or in [Pipecat Cloud](https://docs.pipecat.ai/pipecat-cloud/overview)), it hands the bot a `DailyRunnerArguments` with the Daily room URL and a *single* meeting token for the bot itself. 
+`AnamTransport` needs *two* tokens (one for the bot, one for the avatar), so the bot mints the second one in-process via
+`DailyRESTHelper` keyed on `DAILY_API_KEY`. The same file runs unchanged both locally and on Pipecat Cloud.
+
+See [`examples/video-avatar-anam-transport-pcc.py`](examples/video-avatar-anam-transport-pcc.py)
+for the full example.
+
 ## Video Post-Filter Example
 
 The output transport scales the avatar resolution to the configured output resolution. When the aspect ratios mismatch the video is stretched or squeezed. To avoid this, apply a video post-processing filter that crops the avatar to the output aspect ratio.
@@ -203,10 +213,16 @@ Or with the built-in WebRTC transport:
 uv run python examples/video-avatar-anam-video-service.py -t webrtc
 ```
 
-To run the `AnamTransport` example (direct Daily egress, Deepgram + Google + Cartesia):
+To run the `AnamTransport` example (direct Daily egress, BYO room and tokens, Deepgram + Google + Cartesia):
 
 ```bash
 uv run python examples/video-avatar-anam-transport.py
+```
+
+To run the Pipecat-Cloud-shaped `AnamTransport` example (same pipeline, but the room is minted by the runner and the avatar token is minted in-process). Use `-d` so the runner prints a ready-to-click Daily URL:
+
+```bash
+uv run python examples/video-avatar-anam-transport-pcc.py -d
 ```
 
 To run the center-aspect post-filter example with the WebRTC transport:
