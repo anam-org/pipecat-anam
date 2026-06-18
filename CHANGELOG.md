@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.1.0-alpha.3 (2026-06-18)
+
+### Documentation
+
+- Anam Transport Example for Pipecat Cloud.
+  ([#19](https://github.com/anam-org/pipecat-anam/pull/19),
+  [`8e5a159`](https://github.com/anam-org/pipecat-anam/commit/8e5a1593860f7640d24c621e3f8120f3d6fc1ee4))
+
+### Features
+
+- Bump Python and fix AnamTransport close ([#20](https://github.com/anam-org/pipecat-anam/pull/20),
+  [`1330024`](https://github.com/anam-org/pipecat-anam/commit/1330024c498a16ba025b44024518bfaf7c4478cd))
+
+
 ## v0.1.0-alpha.2 (2026-06-12)
 
 ### Bug Fixes
