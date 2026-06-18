@@ -21,7 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "pipecat-ai>=0.0.103",
-    "anam==0.5.0a1",
+    "anam==0.6.0",
     "av>=14.0.0",
 ]
 

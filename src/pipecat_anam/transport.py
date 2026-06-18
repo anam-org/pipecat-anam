@@ -304,22 +304,22 @@ class AnamTransportClient:
         return self._stop_called
 
     async def stop(self) -> None:
-        """Leave Daily and close the Anam session. Idempotent."""
+        """Close the Anam session and leave Daily. Idempotent."""
         if self._stop_called:
             return
         self._stop_called = True
         self._avatar_connected_event.clear()
 
-        if self._daily_client is not None:
-            try:
-                await self._daily_client.leave()
-            except Exception as exc:
-                logger.error(f"AnamTransportClient: error leaving Daily: {exc}")
         if self._session is not None and self._session.is_active:
             try:
                 await self._session.close()
             except Exception as exc:
                 logger.error(f"AnamTransportClient: error closing Anam session: {exc}")
+        if self._daily_client is not None:
+            try:
+                await self._daily_client.leave()
+            except Exception as exc:
+                logger.error(f"AnamTransportClient: error leaving Daily: {exc}")
         self._session = None
         self._agent_audio_stream = None
 
