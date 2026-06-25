@@ -178,7 +178,7 @@ async def bot(runner_args: RunnerArguments) -> None:
             api_key=os.environ["ANAM_API_KEY"],
             persona_config=PersonaConfig(
                 avatar_id=os.getenv("ANAM_AVATAR_ID", "071b0286-4cce-4808-bee2-e642f1062de3"),
-                avatar_model="cara-4-latest",
+                avatar_model=os.getenv("ANAM_AVATAR_MODEL", "cara-4"),
                 enable_audio_passthrough=True,
             ),
             daily_room_url=runner_args.room_url,
