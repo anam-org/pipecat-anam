@@ -88,7 +88,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     persona_config = PersonaConfig(
         avatar_id=avatar_id,
-        avatar_model=os.getenv("ANAM_AVATAR_MODEL", "cara-4"),
+        avatar_model=os.getenv("ANAM_AVATAR_MODEL", "cara-4") or None,
         enable_audio_passthrough=True,
     )
     logger.info(f"Persona config: {persona_config}")
