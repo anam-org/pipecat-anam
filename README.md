@@ -54,6 +54,7 @@ from pipecat_anam import AnamVideoService
 
 persona_config = PersonaConfig(
     avatar_id="your-avatar-id",
+    avatar_model="cara-4",
     enable_audio_passthrough=True,
 )
 
@@ -77,6 +78,10 @@ pipeline = Pipeline([
 ```
 
 See [examples/video-avatar-anam-video-service.py](examples/video-avatar-anam-video-service.py) for a complete working example.
+
+### Avatar model
+
+Set `avatar_model` on `PersonaConfig` (default: `"cara-4"`). If your avatar does not support Cara-4, set `avatar_model="cara-3"`, or create a new compatible avatar in [lab.anam.ai](https://lab.anam.ai).
 
 ## Initializing the Anam avatar session
 
@@ -110,8 +115,8 @@ transport = AnamTransport(
     api_key=os.environ["ANAM_API_KEY"],
     persona_config=PersonaConfig(
         avatar_id=os.environ["ANAM_AVATAR_ID"],
-        # Direct Daily egress requires a Cara-4 avatar; stock avatars default to cara-3.
-        avatar_model="cara-4-latest",
+        # Direct Daily egress requires a cara-4 avatar; stock avatars default to cara-3.
+        avatar_model="cara-4",
         enable_audio_passthrough=True,
     ),
     daily_room_url=os.environ["DAILY_ROOM_URL"],
@@ -152,8 +157,8 @@ async with aiohttp.ClientSession() as session:
         api_key=os.environ["ANAM_API_KEY"],
         persona_config=PersonaConfig(
             avatar_id=os.environ["ANAM_AVATAR_ID"],
-            # Direct Daily egress requires a Cara-4 avatar; stock avatars default to cara-3.
-            avatar_model="cara-4-latest",
+            # Direct Daily egress requires a cara-4 avatar; stock avatars default to cara-3.
+            avatar_model="cara-4",
             enable_audio_passthrough=True,
         ),
         daily_room_url=room.url,
