@@ -11,24 +11,45 @@
 These exercise the delegation added so that ``transport.output().send_message(frame)``
 actually reaches the Daily app-message channel on :class:`AnamTransport` sessions,
 mirroring ``DailyOutputTransport.send_message``. No live Daily/Anam connection is used;
-the transport objects are instantiated via ``__new__`` so only the attributes each method
-touches need to be set up.
+constructor arguments that would normally reach Daily/Anam (tokens, callbacks) are
+dummy values or mocks.
 """
 
 from unittest.mock import AsyncMock
 
 import pytest
+from anam import PersonaConfig
 from pipecat.frames.frames import OutputTransportMessageUrgentFrame
+from pipecat.transports.base_transport import TransportParams
 
-from pipecat_anam.transport import AnamOutputTransport, AnamTransportClient
+from pipecat_anam.transport import AnamOutputTransport, AnamParams, AnamTransportClient
+
+
+def make_client() -> AnamTransportClient:
+    return AnamTransportClient(
+        bot_name="test-bot",
+        daily_room_url="https://example.daily.co/test",
+        daily_bot_token=None,
+        daily_avatar_token=None,
+        daily_avatar_user_name=None,
+        api_key="test-api-key",
+        persona_config=PersonaConfig(),
+        api_base_url="https://api.anam.ai",
+        api_version="v1",
+        ice_servers=None,
+        params=AnamParams(),
+        on_connected=AsyncMock(),
+        on_participant_connected=AsyncMock(),
+        on_participant_disconnected=AsyncMock(),
+        on_error=AsyncMock(),
+    )
 
 
 @pytest.mark.asyncio
 async def test_output_transport_send_message_delegates_to_client() -> None:
     """AnamOutputTransport.send_message awaits self._client.send_message with the frame."""
     frame = OutputTransportMessageUrgentFrame(message={"kind": "chat", "body": "hi"})
-    transport = AnamOutputTransport.__new__(AnamOutputTransport)
-    transport._client = AsyncMock()
+    transport = AnamOutputTransport(client=AsyncMock(), params=TransportParams())
     transport._client.send_message.return_value = None
     transport.push_error = AsyncMock()
 
@@ -42,8 +63,7 @@ async def test_output_transport_send_message_delegates_to_client() -> None:
 async def test_output_transport_send_message_pushes_error_on_failure() -> None:
     """A truthy error from the client triggers push_error; no exception is raised."""
     frame = OutputTransportMessageUrgentFrame(message={"kind": "chat", "body": "hi"})
-    transport = AnamOutputTransport.__new__(AnamOutputTransport)
-    transport._client = AsyncMock()
+    transport = AnamOutputTransport(client=AsyncMock(), params=TransportParams())
     transport._client.send_message.return_value = "boom"
     transport.push_error = AsyncMock()
 
@@ -57,8 +77,7 @@ async def test_output_transport_send_message_pushes_error_on_failure() -> None:
 @pytest.mark.asyncio
 async def test_client_send_message_raises_before_setup() -> None:
     """AnamTransportClient.send_message raises RuntimeError when setup() hasn't run yet."""
-    client = AnamTransportClient.__new__(AnamTransportClient)
-    client._daily_client = None
+    client = make_client()
 
     with pytest.raises(RuntimeError, match="send_message called before setup"):
         await client.send_message(OutputTransportMessageUrgentFrame(message="hi"))
@@ -68,7 +87,7 @@ async def test_client_send_message_raises_before_setup() -> None:
 async def test_client_send_message_delegates_to_daily_client() -> None:
     """AnamTransportClient.send_message delegates to the underlying DailyTransportClient."""
     frame = OutputTransportMessageUrgentFrame(message="hi")
-    client = AnamTransportClient.__new__(AnamTransportClient)
+    client = make_client()
     client._daily_client = AsyncMock()
     client._daily_client.send_message.return_value = None
 
