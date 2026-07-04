@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import LLMRunFrame, OutputTransportMessageUrgentFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -127,6 +127,14 @@ async def main():
             }
         )
         await task.queue_frames([LLMRunFrame()])
+
+        # Demonstrate broadcasting a Daily app-message from the bot. This reaches every
+        # other participant in the room over the data channel, independent of TTS/audio.
+        await transport.output().send_message(
+            OutputTransportMessageUrgentFrame(
+                message={"kind": "chat", "body": "hello from the bot"}
+            )
+        )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, participant):
