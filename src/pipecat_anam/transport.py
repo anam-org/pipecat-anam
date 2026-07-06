@@ -47,6 +47,8 @@ from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
     InterruptionFrame,
+    OutputTransportMessageFrame,
+    OutputTransportMessageUrgentFrame,
     StartFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
@@ -57,6 +59,7 @@ from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import (
+    CallClientError,
     DailyCallbacks,
     DailyParams,
     DailyTransportClient,
@@ -398,6 +401,14 @@ class AnamTransportClient:
             profile_settings=profile_settings,
         )
 
+    async def send_message(
+        self,
+        frame: OutputTransportMessageFrame | OutputTransportMessageUrgentFrame,
+    ) -> CallClientError | None:
+        if self._daily_client is None:
+            raise RuntimeError("send_message called before setup() completed.")
+        return await self._daily_client.send_message(frame)
+
     @property
     def in_sample_rate(self) -> int:
         if self._daily_client is None:
@@ -526,6 +537,14 @@ class AnamOutputTransport(BaseOutputTransport):
     async def cancel(self, frame: CancelFrame) -> None:
         await super().cancel(frame)
         await self._client.stop()
+
+    async def send_message(
+        self,
+        frame: OutputTransportMessageFrame | OutputTransportMessageUrgentFrame,
+    ) -> None:
+        error = await self._client.send_message(frame)
+        if error:
+            await self.push_error(f"Unable to send message: {error}")
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         # TTSAudioRawFrame is swallowed to prevent BaseOutputTransport from sending it outbound.
