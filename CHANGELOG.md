@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.1 (2026-07-06)
+
+### Documentation
+
+- Default examples and docs to use cara-4
+  ([`a0ae8f7`](https://github.com/anam-org/pipecat-anam/commit/a0ae8f7380d1f8c66c2386d13254358d23bb55ff))
+
+### Features
+
+- Deliver app messages via AnamOutputTransport.send_message
+  ([`2dd749d`](https://github.com/anam-org/pipecat-anam/commit/2dd749d2e40f96adb679032c598d6cc4a08b9c46))
+
+- **transport**: Deliver app messages via AnamOutputTransport.send_message
+  ([`2dd749d`](https://github.com/anam-org/pipecat-anam/commit/2dd749d2e40f96adb679032c598d6cc4a08b9c46))
+
+### Testing
+
+- Construct real objects instead of bypassing __init__ via __new__
+  ([`2dd749d`](https://github.com/anam-org/pipecat-anam/commit/2dd749d2e40f96adb679032c598d6cc4a08b9c46))
+
+
 ## v0.1.0 (2026-06-18)
 
 
