@@ -107,7 +107,7 @@ To shift the delivery for the current turn, send a cue while the session is acti
 await anam.send_director_note_cue("laughter", at_seconds=0.0)
 ```
 
-The cue applies to the current turn only. Use `at_seconds` for an offset from the start of the turn, or `in_seconds` for a delay from now.
+The cue applies to the current turn only: use `at_seconds` for an offset from the start of the turn, or `in_seconds` for a delay from now.
 
 ### Avatar model
 
