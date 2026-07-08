@@ -149,7 +149,7 @@ async def main():
     async def on_avatar_connected(transport, participant):
         logger.info("Avatar connected")
         # Demonstrate a runtime director-note cue applied to the current turn.
-        await transport.send_director_note_cue(tag="gnarly-unhappy", at_seconds=2.0)
+        await transport.send_director_note_cue(tag="happy", at_seconds=2.0)
 
     @transport.event_handler("on_avatar_disconnected")
     async def on_avatar_disconnected(transport, participant, reason):
