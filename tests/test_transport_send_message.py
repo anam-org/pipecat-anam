@@ -22,7 +22,7 @@ from anam import PersonaConfig
 from pipecat.frames.frames import OutputTransportMessageUrgentFrame
 from pipecat.transports.base_transport import TransportParams
 
-from pipecat_anam.transport import AnamOutputTransport, AnamParams, AnamTransportClient
+from pipecat_anam.transport import AnamOutputTransport, AnamParams, AnamTransport, AnamTransportClient
 
 
 def make_client() -> AnamTransportClient:
@@ -95,3 +95,48 @@ async def test_client_send_message_delegates_to_daily_client() -> None:
 
     client._daily_client.send_message.assert_awaited_once_with(frame)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_client_send_director_note_cue_raises_before_session_active() -> None:
+    """AnamTransportClient.send_director_note_cue raises without an active session."""
+    client = make_client()
+
+    with pytest.raises(RuntimeError, match="before Anam session is active"):
+        await client.send_director_note_cue("warm")
+
+
+@pytest.mark.asyncio
+async def test_client_send_director_note_cue_delegates_to_session() -> None:
+    """AnamTransportClient.send_director_note_cue delegates to the Anam Session."""
+    client = make_client()
+    client._session = AsyncMock()
+    client._session.is_active = True
+
+    await client.send_director_note_cue("warm", at_seconds=0.0)
+
+    client._session.send_director_note_cue.assert_awaited_once_with(
+        tag="warm",
+        at_seconds=0.0,
+        in_seconds=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_transport_send_director_note_cue_delegates_to_client() -> None:
+    """AnamTransport.send_director_note_cue forwards cue messages to its client."""
+    transport = AnamTransport(
+        api_key="test-api-key",
+        persona_config=PersonaConfig(enable_audio_passthrough=True),
+        daily_room_url="https://example.daily.co/test",
+        params=AnamParams(),
+    )
+    transport._client = AsyncMock()
+
+    await transport.send_director_note_cue("warm", in_seconds=0.25)
+
+    transport._client.send_director_note_cue.assert_awaited_once_with(
+        tag="warm",
+        at_seconds=None,
+        in_seconds=0.25,
+    )

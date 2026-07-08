@@ -79,6 +79,36 @@ pipeline = Pipeline([
 
 See [examples/video-avatar-anam-video-service.py](examples/video-avatar-anam-video-service.py) for a complete working example.
 
+### Director notes
+
+Director notes guide how the avatar *performs* its speech — a baseline delivery style and expressivity for the session. Configure them on `PersonaConfig(director_notes=...)` to set the default performance for the session.
+
+```python
+from anam import DirectorNotes, PersonaConfig
+
+persona_config = PersonaConfig(
+    avatar_id="your-avatar-id",
+    avatar_model="cara-4",
+    director_notes=DirectorNotes(
+        preset_style="warm",
+        expressivity=0.7,
+    ),
+    enable_audio_passthrough=True,
+)
+```
+
+Director notes require a Cara-4 avatar. For the supported preset styles, expressivity range, and runtime cues, see the [Anam Director Notes docs](https://anam.ai/docs/personas/director-notes).
+
+#### Sending cues during the conversation
+
+To shift the delivery for the current turn, send a cue while the session is active using `send_director_note_cue(...)`:
+
+```python
+await anam.send_director_note_cue("laughter", at_seconds=0.0)
+```
+
+The cue applies to the current turn only. Use `at_seconds` for an offset from the start of the turn, or `in_seconds` for a delay from now.
+
 ### Avatar model
 
 Set `avatar_model` on `PersonaConfig` (default: `"cara-4"`). If your avatar does not support Cara-4, set `avatar_model="cara-3"`, or create a new compatible avatar in [lab.anam.ai](https://lab.anam.ai).
@@ -105,7 +135,7 @@ See the [Daily REST API docs](https://docs.daily.co/reference/rest-api) for `roo
 - `daily_avatar_token` — for the Anam Backend (optional, but required for private rooms). If a `user_name` claim is set, it **must match** `daily_avatar_user_name` (or leave the claim empty). This lets the transport tell the avatar apart from end users. The transport will not forward TTS until the avatar has joined.
 - `daily_bot_token` — for the Pipecat bot itself, used to capture the user's microphone for STT.
 
-Requires `anam==0.5.0a1` (pinned exactly — see the SDK's experimental-alpha warning).
+Requires `anam==0.7.0a1` (pinned exactly — see the SDK's experimental-alpha warning).
 
 ```python
 from anam import PersonaConfig
