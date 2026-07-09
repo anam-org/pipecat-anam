@@ -239,6 +239,23 @@ class AnamVideoService(AIService):
         self._client = None
         self._anam_session = None
 
+    async def send_director_note_cue(
+        self,
+        tag: str,
+        *,
+        at_seconds: float | None = None,
+        in_seconds: float | None = None,
+    ) -> None:
+        """Send a director-note cue on the active Anam session."""
+        session = self._anam_session
+        if session is None or not session.is_active:
+            raise RuntimeError("send_director_note_cue called before Anam session is active.")
+        await session.send_director_note_cue(
+            tag=tag,
+            at_seconds=at_seconds,
+            in_seconds=in_seconds,
+        )
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process incoming frames and coordinate avatar behavior.
 

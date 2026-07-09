@@ -409,6 +409,23 @@ class AnamTransportClient:
             raise RuntimeError("send_message called before setup() completed.")
         return await self._daily_client.send_message(frame)
 
+    async def send_director_note_cue(
+        self,
+        tag: str,
+        *,
+        at_seconds: float | None = None,
+        in_seconds: float | None = None,
+    ) -> None:
+        """Send a director-note cue on the active Anam session."""
+        session = self._session
+        if session is None or not session.is_active:
+            raise RuntimeError("send_director_note_cue called before Anam session is active.")
+        await session.send_director_note_cue(
+            tag=tag,
+            at_seconds=at_seconds,
+            in_seconds=in_seconds,
+        )
+
     @property
     def in_sample_rate(self) -> int:
         if self._daily_client is None:
@@ -768,6 +785,20 @@ class AnamTransport(BaseTransport):
         await self._client.update_subscriptions(
             participant_settings=participant_settings,
             profile_settings=profile_settings,
+        )
+
+    async def send_director_note_cue(
+        self,
+        tag: str,
+        *,
+        at_seconds: float | None = None,
+        in_seconds: float | None = None,
+    ) -> None:
+        """Send a director-note cue for the active Anam session."""
+        await self._client.send_director_note_cue(
+            tag=tag,
+            at_seconds=at_seconds,
+            in_seconds=in_seconds,
         )
 
     async def _on_fatal_error(self, error: str) -> None:

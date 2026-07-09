@@ -9,7 +9,7 @@
 
 import os
 
-from anam import PersonaConfig
+from anam import DirectorNotes, PersonaConfig
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -89,6 +89,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     persona_config = PersonaConfig(
         avatar_id=avatar_id,
         avatar_model=os.getenv("ANAM_AVATAR_MODEL", "cara-4") or None,
+        director_notes=DirectorNotes(
+            preset_style="warm",
+            expressivity=0.7,
+        ),
         enable_audio_passthrough=True,
     )
     logger.info(f"Persona config: {persona_config}")

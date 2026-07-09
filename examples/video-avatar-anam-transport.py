@@ -34,7 +34,7 @@ import asyncio
 import os
 import sys
 
-from anam import PersonaConfig
+from anam import DirectorNotes, PersonaConfig
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -67,6 +67,10 @@ async def main():
             avatar_id=os.getenv("ANAM_AVATAR_ID", "071b0286-4cce-4808-bee2-e642f1062de3"),
             # Direct Daily egress requires a Cara-4 avatar; stock avatars default to cara-3.
             avatar_model=os.getenv("ANAM_AVATAR_MODEL", "cara-4") or None,
+            director_notes=DirectorNotes(
+                preset_style="warm",
+                expressivity=0.7,
+            ),
             enable_audio_passthrough=True,
         ),
         daily_room_url=os.environ["DAILY_ROOM_URL"],
@@ -144,6 +148,8 @@ async def main():
     @transport.event_handler("on_avatar_connected")
     async def on_avatar_connected(transport, participant):
         logger.info("Avatar connected")
+        # Demonstrate a runtime director-note cue applied to the current turn.
+        await transport.send_director_note_cue(tag="happy", at_seconds=2.0)
 
     @transport.event_handler("on_avatar_disconnected")
     async def on_avatar_disconnected(transport, participant, reason):
