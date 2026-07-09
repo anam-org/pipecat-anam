@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.2 (2026-07-09)
+
+### Features
+
+- Support for director notes
+  ([`babe3ba`](https://github.com/anam-org/pipecat-anam/commit/babe3baacd1009a414e8aacce38ec04ff91bb325))
+
+
 ## v0.2.0-alpha.1 (2026-07-06)
 
 ### Documentation
