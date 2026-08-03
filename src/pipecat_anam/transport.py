@@ -129,6 +129,8 @@ class AnamTransportClient:
         api_base_url: str,
         api_version: str,
         ice_servers: Optional[list[dict]],
+        video_width: Optional[int],
+        video_height: Optional[int],
         params: AnamParams,
         on_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
         on_participant_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
@@ -145,6 +147,8 @@ class AnamTransportClient:
         self._api_base_url = api_base_url
         self._api_version = api_version
         self._ice_servers = ice_servers
+        self._video_width = video_width
+        self._video_height = video_height
         self._params = params
         self._on_connected = on_connected
         self._on_participant_connected = on_participant_connected
@@ -264,9 +268,9 @@ class AnamTransportClient:
         )
         anam_client.add_listener(AnamEvent.CONNECTION_CLOSED, self._on_connection_closed)
         # Session replay is not supported for AnamTransport avatars.
-        session_options = SessionOptions(
-            enable_session_replay=False,
-            egress=EgressOptions(
+        session_options_kwargs: dict[str, Any] = {
+            "enable_session_replay": False,
+            "egress": EgressOptions(
                 mode="daily",
                 daily=EgressDailyOptions(
                     room_url=self._daily_room_url,
@@ -274,7 +278,11 @@ class AnamTransportClient:
                     user_name=self._daily_avatar_user_name,
                 ),
             ),
-        )
+        }
+        if self._video_width is not None and self._video_height is not None:
+            session_options_kwargs["video_width"] = self._video_width
+            session_options_kwargs["video_height"] = self._video_height
+        session_options = SessionOptions(**session_options_kwargs)
         self._session = await anam_client.connect_async(session_options=session_options)
 
     def _create_agent_audio_stream(self, frame: StartFrame) -> None:
@@ -708,6 +716,8 @@ class AnamTransport(BaseTransport):
         api_base_url: str = "https://api.anam.ai",
         api_version: str = "v1",
         ice_servers: Optional[list[dict]] = None,
+        video_width: Optional[int] = None,
+        video_height: Optional[int] = None,
         input_name: Optional[str] = None,
         output_name: Optional[str] = None,
     ) -> None:
@@ -728,6 +738,8 @@ class AnamTransport(BaseTransport):
             params: Transport parameters. The default :class:`AnamParams` keeps the
                 Pipecat bot publish-disabled so it doesn't compete with the avatar.
             api_base_url, api_version, ice_servers: Pass-through to the Anam SDK.
+            video_width, video_height: Optional output dimensions (both required together).
+                Cara-4 portrait is ``768`` x ``1152``; landscape is ``1152`` x ``768``.
             input_name, output_name: Optional Pipecat transport names.
 
         Raises:
@@ -736,6 +748,8 @@ class AnamTransport(BaseTransport):
         # ``enable_audio_passthrough`` must be true for the avatar to be driven by your TTS.
         if not persona_config.enable_audio_passthrough:
             raise ValueError("AnamTransport requires PersonaConfig(enable_audio_passthrough=True).")
+        if (video_width is None) != (video_height is None):
+            raise ValueError("video_width and video_height must be provided together")
         super().__init__(input_name=input_name, output_name=output_name)
         self._params = params
         self._daily_avatar_user_name = daily_avatar_user_name or ANAM_AVATAR_USER_NAME
@@ -751,6 +765,8 @@ class AnamTransport(BaseTransport):
             api_base_url=api_base_url,
             api_version=api_version,
             ice_servers=ice_servers,
+            video_width=video_width,
+            video_height=video_height,
             params=params,
             on_connected=self._on_connected,
             on_participant_connected=self._on_participant_connected,

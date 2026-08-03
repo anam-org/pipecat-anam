@@ -113,6 +113,30 @@ The cue applies to the current turn only: use `at_seconds` for an offset from th
 
 Set `avatar_model` on `PersonaConfig` (default: `"cara-4"`). If your avatar does not support Cara-4, set `avatar_model="cara-3"`, or create a new compatible avatar in [lab.anam.ai](https://lab.anam.ai).
 
+### Output video dimensions (portrait / landscape)
+
+Both `AnamVideoService` and `AnamTransport` accept optional `video_width` and `video_height`
+to control the avatar's output resolution. Both must be provided together.
+
+| Orientation | Model  | Width | Height |
+| ----------- | ------ | ----- | ------ |
+| Portrait    | cara-4 | 768   | 1152   |
+| Landscape   | cara-4 | 1152  | 768    |
+| Landscape   | cara-3 | 720   | 480    |
+
+```python
+transport = AnamTransport(
+    api_key=os.environ["ANAM_API_KEY"],
+    persona_config=persona_config,
+    daily_room_url=os.environ["DAILY_ROOM_URL"],
+    video_width=768,
+    video_height=1152,  # portrait
+)
+```
+
+[`examples/video-avatar-anam-transport.py`](examples/video-avatar-anam-transport.py) defaults to
+landscape via `ANAM_VIDEO_WIDTH` / `ANAM_VIDEO_HEIGHT` (1152×768). Set `768` and `1152` for portrait.
+
 ## Initializing the Anam avatar session
 
 `AnamVideoService` opens its connection to the Anam Backend asynchronously. The `StartFrame` is propagated downstream immediately so the rest of the pipeline (LLM/TTS/...) can warm up in parallel. TTS audio starts forwarding once the avatar is ready; any TTS produced before then is held back so it doesn't get dropped on the way in or accumulates latency.
@@ -135,7 +159,7 @@ See the [Daily REST API docs](https://docs.daily.co/reference/rest-api) for `roo
 - `daily_avatar_token` — for the Anam Backend (optional, but required for private rooms). If a `user_name` claim is set, it **must match** `daily_avatar_user_name` (or leave the claim empty). This lets the transport tell the avatar apart from end users. The transport will not forward TTS until the avatar has joined.
 - `daily_bot_token` — for the Pipecat bot itself, used to capture the user's microphone for STT.
 
-Requires `anam==0.7.0a1` (pinned exactly — see the SDK's experimental-alpha warning).
+Requires `anam==0.7.0a2` (pinned exactly — see the SDK's experimental-alpha warning).
 
 ```python
 from anam import PersonaConfig
@@ -253,6 +277,8 @@ To run the `AnamTransport` example (direct Daily egress, BYO room and tokens, De
 ```bash
 uv run python examples/video-avatar-anam-transport.py
 ```
+
+Defaults to landscape (1152×768); set `ANAM_VIDEO_WIDTH=768` and `ANAM_VIDEO_HEIGHT=1152` for portrait.
 
 To run the Pipecat-Cloud-shaped `AnamTransport` example (same pipeline, but the room is minted by the runner and the avatar token is minted in-process). Use `-d` so the runner prints a ready-to-click Daily URL:
 

@@ -78,6 +78,8 @@ class AnamVideoService(AIService):
         api_base_url: Optional[str] = None,
         api_version: Optional[str] = None,
         enable_session_replay: bool = True,
+        video_width: Optional[int] = None,
+        video_height: Optional[int] = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -89,8 +91,15 @@ class AnamVideoService(AIService):
             api_base_url: Base URL for the Anam API.
             api_version: API version to use.
             enable_session_replay: Whether to enable session recording on Anam's backend.
+            video_width: Requested avatar output width. Must be provided with ``video_height``.
+            video_height: Requested avatar output height. Must be provided with ``video_width``.
             **kwargs: Additional arguments passed to parent AIService.
+
+        Raises:
+            ValueError: if only one of ``video_width`` / ``video_height`` is provided.
         """
+        if (video_width is None) != (video_height is None):
+            raise ValueError("video_width and video_height must be provided together")
         super().__init__(settings=ServiceSettings(model=None), **kwargs)
         self._api_key = api_key
         self._persona_config = persona_config
@@ -98,6 +107,8 @@ class AnamVideoService(AIService):
         self._api_base_url = api_base_url
         self._api_version = api_version
         self._enable_session_replay = enable_session_replay
+        self._video_width = video_width
+        self._video_height = video_height
 
         self._client: Optional[AnamClient] = None
         self._anam_session: Optional[Session] = None
@@ -185,8 +196,14 @@ class AnamVideoService(AIService):
         """Establish the Anam session and prepare audio/video tasks."""
         try:
             logger.debug("Connecting to Anam Avatar service")
+            session_options_kwargs: dict = {
+                "enable_session_replay": self._enable_session_replay,
+            }
+            if self._video_width is not None and self._video_height is not None:
+                session_options_kwargs["video_width"] = self._video_width
+                session_options_kwargs["video_height"] = self._video_height
             self._anam_session = await self._client.connect_async(
-                session_options=SessionOptions(enable_session_replay=self._enable_session_replay)
+                session_options=SessionOptions(**session_options_kwargs)
             )
             audio_config = AgentAudioInputConfig(
                 encoding="pcm_s16le",
