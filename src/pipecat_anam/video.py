@@ -13,7 +13,6 @@ as synchronized raw audio/video frames.
 """
 
 import asyncio
-from typing import Optional
 
 from anam import (
     AgentAudioInputConfig,
@@ -28,7 +27,6 @@ from anam import (
 )
 from av.audio.resampler import AudioResampler
 from loguru import logger
-
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     CancelFrame,
@@ -74,12 +72,12 @@ class AnamVideoService(AIService):
         *,
         api_key: str,
         persona_config: PersonaConfig,
-        ice_servers: Optional[list[dict]] = None,
-        api_base_url: Optional[str] = None,
-        api_version: Optional[str] = None,
+        ice_servers: list[dict] | None = None,
+        api_base_url: str | None = None,
+        api_version: str | None = None,
         enable_session_replay: bool = True,
-        video_width: Optional[int] = None,
-        video_height: Optional[int] = None,
+        video_width: int | None = None,
+        video_height: int | None = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -110,13 +108,13 @@ class AnamVideoService(AIService):
         self._video_width = video_width
         self._video_height = video_height
 
-        self._client: Optional[AnamClient] = None
-        self._anam_session: Optional[Session] = None
-        self._agent_audio_stream: Optional[AgentAudioInputStream] = None
-        self._send_task: Optional[asyncio.Task] = None
-        self._video_task: Optional[asyncio.Task] = None
-        self._audio_task: Optional[asyncio.Task] = None
-        self._connect_task: Optional[asyncio.Task] = None
+        self._client: AnamClient | None = None
+        self._anam_session: Session | None = None
+        self._agent_audio_stream: AgentAudioInputStream | None = None
+        self._send_task: asyncio.Task | None = None
+        self._video_task: asyncio.Task | None = None
+        self._audio_task: asyncio.Task | None = None
+        self._connect_task: asyncio.Task | None = None
         self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = (
             asyncio.Queue()
         )
@@ -316,7 +314,7 @@ class AnamVideoService(AIService):
         """
         return True
 
-    def _normalize_tts_context_id(self, context_id: Optional[str]) -> str:
+    def _normalize_tts_context_id(self, context_id: str | None) -> str:
         """Normalize optional Pipecat TTS context IDs for local tracking."""
         return context_id if context_id is not None else "__legacy__"
 
@@ -393,7 +391,7 @@ class AnamVideoService(AIService):
         logger.info(f"Anam session ready (session_id={self._anam_session.session_id})")
         self._session_ready_event.set()
 
-    async def _on_connection_closed(self, code: str, reason: Optional[str]) -> None:
+    async def _on_connection_closed(self, code: str, reason: str | None) -> None:
         """Handle connection closed event.
 
         Client and session are closed by the SDK prior to emitting this event.

@@ -22,7 +22,12 @@ from anam import PersonaConfig
 from pipecat.frames.frames import OutputTransportMessageUrgentFrame
 from pipecat.transports.base_transport import TransportParams
 
-from pipecat_anam.transport import AnamOutputTransport, AnamParams, AnamTransport, AnamTransportClient
+from pipecat_anam.transport import (
+    AnamOutputTransport,
+    AnamParams,
+    AnamTransport,
+    AnamTransportClient,
+)
 
 
 def make_client() -> AnamTransportClient:

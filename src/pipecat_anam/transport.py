@@ -19,7 +19,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from functools import partial
-from typing import Any, Optional
+from typing import Any
 
 from anam import (
     AgentAudioInputConfig,
@@ -36,7 +36,6 @@ from anam import (
 )
 from daily.daily import AudioData
 from loguru import logger
-
 from pipecat.frames.frames import (
     BotConnectedFrame,
     BotStartedSpeakingFrame,
@@ -64,7 +63,6 @@ from pipecat.transports.daily.transport import (
     DailyParams,
     DailyTransportClient,
 )
-
 
 # Default display name the Anam avatar joins Daily with.
 ANAM_AVATAR_USER_NAME = "anam-avatar"
@@ -108,6 +106,9 @@ class AnamParams(DailyParams):
     camera_out_enabled: bool = False
 
 
+_DEFAULT_ANAM_PARAMS = AnamParams()
+
+
 class AnamTransportClient:
     """Owns one Daily room participant + one Anam SDK session.
 
@@ -121,16 +122,16 @@ class AnamTransportClient:
         *,
         bot_name: str,
         daily_room_url: str,
-        daily_bot_token: Optional[str],
-        daily_avatar_token: Optional[str],
-        daily_avatar_user_name: Optional[str],
+        daily_bot_token: str | None,
+        daily_avatar_token: str | None,
+        daily_avatar_user_name: str | None,
         api_key: str,
         persona_config: PersonaConfig,
         api_base_url: str,
         api_version: str,
-        ice_servers: Optional[list[dict]],
-        video_width: Optional[int],
-        video_height: Optional[int],
+        ice_servers: list[dict] | None,
+        video_width: int | None,
+        video_height: int | None,
         params: AnamParams,
         on_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
         on_participant_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
@@ -155,9 +156,9 @@ class AnamTransportClient:
         self._on_participant_disconnected = on_participant_disconnected
         self._on_error = on_error
 
-        self._daily_client: Optional[DailyTransportClient] = None
-        self._session: Optional[Session] = None
-        self._agent_audio_stream: Optional[AgentAudioInputStream] = None
+        self._daily_client: DailyTransportClient | None = None
+        self._session: Session | None = None
+        self._agent_audio_stream: AgentAudioInputStream | None = None
         # Set when the avatar participant joins Daily (name match).
         self._avatar_connected_event = asyncio.Event()
         # Distinguishes intentional shutdown from an unexpected disconnect.
@@ -349,7 +350,7 @@ class AnamTransportClient:
             f"AnamTransportClient[Daily callback] {event_name} args={args} kwargs={kwargs}"
         )
 
-    async def _on_connection_closed(self, code: str, reason: Optional[str]) -> None:
+    async def _on_connection_closed(self, code: str, reason: str | None) -> None:
         self._session = None
 
         # NORMAL is Anam's WS-protocol "graceful close" code.
@@ -359,12 +360,12 @@ class AnamTransportClient:
         await self._on_error(f"Anam session closed unexpectedly: {code} ({reason})")
 
     @property
-    def agent_audio_stream(self) -> Optional[AgentAudioInputStream]:
+    def agent_audio_stream(self) -> AgentAudioInputStream | None:
         """The Anam backend's TTS PCM input stream, or None until the avatar joins the Daily room."""
         return self._agent_audio_stream
 
     @property
-    def session(self) -> Optional[Session]:
+    def session(self) -> Session | None:
         """The active Anam SDK session, or None until start() completes / after stop()."""
         return self._session
 
@@ -384,7 +385,7 @@ class AnamTransportClient:
         participant_id: str,
         callback: Callable[[str, AudioData, str], Awaitable[None]],
         audio_source: str = "microphone",
-        sample_rate: Optional[int] = None,
+        sample_rate: int | None = None,
         callback_interval_ms: int = 20,
     ) -> None:
         if self._daily_client is None:
@@ -399,8 +400,8 @@ class AnamTransportClient:
 
     async def update_subscriptions(
         self,
-        participant_settings: Optional[Mapping[str, Any]] = None,
-        profile_settings: Optional[Mapping[str, Any]] = None,
+        participant_settings: Mapping[str, Any] | None = None,
+        profile_settings: Mapping[str, Any] | None = None,
     ) -> None:
         if self._daily_client is None:
             raise RuntimeError("update_subscriptions called before setup() completed.")
@@ -534,8 +535,8 @@ class AnamOutputTransport(BaseOutputTransport):
         self._client = client
         self._initialized = False
         # TTS-context state machine. See class docstring for rationale.
-        self._active_tts_context_id: Optional[str] = None
-        self._end_sequence_task: Optional[asyncio.Task] = None
+        self._active_tts_context_id: str | None = None
+        self._end_sequence_task: asyncio.Task | None = None
         # We emit Bot{Started,Stopped}SpeakingFrame manually because we
         # bypassed BaseOutputTransport's audio path (audio_out_enabled=False).
         self._bot_speaking: bool = False
@@ -663,7 +664,7 @@ class AnamOutputTransport(BaseOutputTransport):
         except asyncio.CancelledError:
             pass
 
-    async def _send_end_sequence_after_grace(self, context_id: Optional[str]) -> None:
+    async def _send_end_sequence_after_grace(self, context_id: str | None) -> None:
         await asyncio.sleep(END_OF_UTTERANCE_TIMEOUT)
         if self._active_tts_context_id != context_id:
             return
@@ -678,7 +679,7 @@ class AnamOutputTransport(BaseOutputTransport):
         self._active_tts_context_id = None
 
     @staticmethod
-    def _normalize_context_id(context_id: Optional[str]) -> str:
+    def _normalize_context_id(context_id: str | None) -> str:
         """Map ``None`` context_ids (TTS services that don't emit one) to a sentinel
         so the state machine's equality checks still work."""
         return context_id if context_id is not None else "_no_context"
@@ -708,18 +709,18 @@ class AnamTransport(BaseTransport):
         api_key: str,
         persona_config: PersonaConfig,
         daily_room_url: str,
-        daily_avatar_token: Optional[str] = None,
-        daily_bot_token: Optional[str] = None,
-        daily_avatar_user_name: Optional[str] = None,
+        daily_avatar_token: str | None = None,
+        daily_bot_token: str | None = None,
+        daily_avatar_user_name: str | None = None,
         bot_name: str = PIPECAT_BOT_NAME,
-        params: AnamParams = AnamParams(),
+        params: AnamParams = _DEFAULT_ANAM_PARAMS,
         api_base_url: str = "https://api.anam.ai",
         api_version: str = "v1",
-        ice_servers: Optional[list[dict]] = None,
-        video_width: Optional[int] = None,
-        video_height: Optional[int] = None,
-        input_name: Optional[str] = None,
-        output_name: Optional[str] = None,
+        ice_servers: list[dict] | None = None,
+        video_width: int | None = None,
+        video_height: int | None = None,
+        input_name: str | None = None,
+        output_name: str | None = None,
     ) -> None:
         """Initialize the Anam transport.
 
@@ -773,8 +774,8 @@ class AnamTransport(BaseTransport):
             on_participant_disconnected=self._on_participant_disconnected,
             on_error=self._on_fatal_error,
         )
-        self._input: Optional[AnamInputTransport] = None
-        self._output: Optional[AnamOutputTransport] = None
+        self._input: AnamInputTransport | None = None
+        self._output: AnamOutputTransport | None = None
 
         self._register_event_handler("on_connected")
         self._register_event_handler("on_client_connected")
@@ -795,8 +796,8 @@ class AnamTransport(BaseTransport):
 
     async def update_subscriptions(
         self,
-        participant_settings: Optional[Mapping[str, Any]] = None,
-        profile_settings: Optional[Mapping[str, Any]] = None,
+        participant_settings: Mapping[str, Any] | None = None,
+        profile_settings: Mapping[str, Any] | None = None,
     ) -> None:
         await self._client.update_subscriptions(
             participant_settings=participant_settings,
