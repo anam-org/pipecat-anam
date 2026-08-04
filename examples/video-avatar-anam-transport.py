@@ -65,8 +65,8 @@ logger.add(sys.stderr, level="DEBUG")
 
 
 async def main():
-    video_width = int(os.getenv("ANAM_VIDEO_WIDTH", "1152"))
-    video_height = int(os.getenv("ANAM_VIDEO_HEIGHT", "768"))
+    video_width = int(os.getenv("ANAM_VIDEO_WIDTH") or "1152")
+    video_height = int(os.getenv("ANAM_VIDEO_HEIGHT") or "768")
     show_ai_avatar_disclosure = os.getenv("ANAM_SHOW_AI_AVATAR_DISCLOSURE")
 
     transport = AnamTransport(
@@ -88,9 +88,7 @@ async def main():
         video_width=video_width,
         video_height=video_height,
         show_ai_avatar_disclosure=(
-            show_ai_avatar_disclosure.lower() == "true"
-            if show_ai_avatar_disclosure is not None
-            else None
+            show_ai_avatar_disclosure.lower() == "true" if show_ai_avatar_disclosure else None
         ),
     )
 
