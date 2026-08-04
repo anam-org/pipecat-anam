@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.3 (2026-08-04)
+
+### Features
+
+- Session video dimensions (portrait/landscape)
+  ([`1439f62`](https://github.com/anam-org/pipecat-anam/commit/1439f624094e3752240ba14317bd73d9caed8f82))
+
+
 ## v0.2.0-alpha.2 (2026-07-09)
 
 ### Features
