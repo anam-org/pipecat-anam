@@ -99,6 +99,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
 
     video_width = os.getenv("ANAM_VIDEO_WIDTH")
     video_height = os.getenv("ANAM_VIDEO_HEIGHT")
+    show_ai_avatar_disclosure = os.getenv("ANAM_SHOW_AI_AVATAR_DISCLOSURE")
 
     anam = AnamVideoService(
         api_key=api_key,
@@ -108,6 +109,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         enable_session_replay=False,
         video_width=int(video_width) if video_width else None,
         video_height=int(video_height) if video_height else None,
+        show_ai_avatar_disclosure=(
+            show_ai_avatar_disclosure.lower() == "true" if show_ai_avatar_disclosure else None
+        ),
     )
 
     messages = [

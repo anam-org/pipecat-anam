@@ -21,8 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "pipecat-ai>=0.0.103",
-    # Pinned exactly: direct Daily egress and video dimensions are experimental.
-    "anam==0.7.0a2",
+    "anam==0.8.0",
     "av>=14.0.0",
 ]
 

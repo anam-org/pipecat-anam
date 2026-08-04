@@ -137,6 +137,21 @@ transport = AnamTransport(
 [`examples/video-avatar-anam-transport.py`](examples/video-avatar-anam-transport.py) defaults to
 landscape via `ANAM_VIDEO_WIDTH` / `ANAM_VIDEO_HEIGHT` (1152×768). Set `768` and `1152` for portrait.
 
+### AI avatar disclosure watermark
+
+Use this when you want to disclose to the user that they're talking to an AI avatar via a watermark.
+Both `AnamVideoService` and `AnamTransport` accept an optional `show_ai_avatar_disclosure` bool,
+forwarded as-is to the Anam SDK's session options. Anam default is `False`.
+
+```python
+transport = AnamTransport(
+    api_key=os.environ["ANAM_API_KEY"],
+    persona_config=persona_config,
+    daily_room_url=os.environ["DAILY_ROOM_URL"],
+    show_ai_avatar_disclosure=False,
+)
+```
+
 ## Initializing the Anam avatar session
 
 `AnamVideoService` opens its connection to the Anam Backend asynchronously. The `StartFrame` is propagated downstream immediately so the rest of the pipeline (LLM/TTS/...) can warm up in parallel. TTS audio starts forwarding once the avatar is ready; any TTS produced before then is held back so it doesn't get dropped on the way in or accumulates latency.
@@ -159,7 +174,7 @@ See the [Daily REST API docs](https://docs.daily.co/reference/rest-api) for `roo
 - `daily_avatar_token` — for the Anam Backend (optional, but required for private rooms). If a `user_name` claim is set, it **must match** `daily_avatar_user_name` (or leave the claim empty). This lets the transport tell the avatar apart from end users. The transport will not forward TTS until the avatar has joined.
 - `daily_bot_token` — for the Pipecat bot itself, used to capture the user's microphone for STT.
 
-Requires `anam==0.7.0a2` (pinned exactly — see the SDK's experimental-alpha warning).
+Requires `anam==0.8.0` (pinned exactly — see the SDK's experimental-alpha warning).
 
 ```python
 from anam import PersonaConfig

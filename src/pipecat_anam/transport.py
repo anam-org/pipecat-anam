@@ -132,6 +132,7 @@ class AnamTransportClient:
         ice_servers: list[dict] | None,
         video_width: int | None,
         video_height: int | None,
+        show_ai_avatar_disclosure: bool | None,
         params: AnamParams,
         on_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
         on_participant_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
@@ -150,6 +151,7 @@ class AnamTransportClient:
         self._ice_servers = ice_servers
         self._video_width = video_width
         self._video_height = video_height
+        self._show_ai_avatar_disclosure = show_ai_avatar_disclosure
         self._params = params
         self._on_connected = on_connected
         self._on_participant_connected = on_participant_connected
@@ -283,6 +285,9 @@ class AnamTransportClient:
         if self._video_width is not None and self._video_height is not None:
             session_options_kwargs["video_width"] = self._video_width
             session_options_kwargs["video_height"] = self._video_height
+
+        if self._show_ai_avatar_disclosure is not None:
+            session_options_kwargs["show_ai_avatar_disclosure"] = self._show_ai_avatar_disclosure
         session_options = SessionOptions(**session_options_kwargs)
         self._session = await anam_client.connect_async(session_options=session_options)
 
@@ -719,6 +724,7 @@ class AnamTransport(BaseTransport):
         ice_servers: list[dict] | None = None,
         video_width: int | None = None,
         video_height: int | None = None,
+        show_ai_avatar_disclosure: bool | None = None,
         input_name: str | None = None,
         output_name: str | None = None,
     ) -> None:
@@ -741,6 +747,9 @@ class AnamTransport(BaseTransport):
             api_base_url, api_version, ice_servers: Pass-through to the Anam SDK.
             video_width, video_height: Optional output dimensions (both required together).
                 Cara-4 portrait is ``768`` x ``1152``; landscape is ``1152`` x ``768``.
+            show_ai_avatar_disclosure: Use this when you want to disclose to the user
+                that they're talking to an AI avatar via a watermark. Optional
+                pass-through to the Anam SDK's session options. Anam default is ``False``.
             input_name, output_name: Optional Pipecat transport names.
 
         Raises:
@@ -768,6 +777,7 @@ class AnamTransport(BaseTransport):
             ice_servers=ice_servers,
             video_width=video_width,
             video_height=video_height,
+            show_ai_avatar_disclosure=show_ai_avatar_disclosure,
             params=params,
             on_connected=self._on_connected,
             on_participant_connected=self._on_participant_connected,
