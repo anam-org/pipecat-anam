@@ -22,7 +22,12 @@ from anam import PersonaConfig
 from pipecat.frames.frames import OutputTransportMessageUrgentFrame
 from pipecat.transports.base_transport import TransportParams
 
-from pipecat_anam.transport import AnamOutputTransport, AnamParams, AnamTransport, AnamTransportClient
+from pipecat_anam.transport import (
+    AnamOutputTransport,
+    AnamParams,
+    AnamTransport,
+    AnamTransportClient,
+)
 
 
 def make_client() -> AnamTransportClient:
@@ -37,6 +42,8 @@ def make_client() -> AnamTransportClient:
         api_base_url="https://api.anam.ai",
         api_version="v1",
         ice_servers=None,
+        video_width=None,
+        video_height=None,
         params=AnamParams(),
         on_connected=AsyncMock(),
         on_participant_connected=AsyncMock(),

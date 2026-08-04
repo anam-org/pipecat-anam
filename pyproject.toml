@@ -21,7 +21,8 @@ classifiers = [
 ]
 dependencies = [
     "pipecat-ai>=0.0.103",
-    "anam==0.7.0a1",
+    # Pinned exactly: direct Daily egress and video dimensions are experimental.
+    "anam==0.7.0a2",
     "av>=14.0.0",
 ]
 
@@ -47,6 +48,9 @@ Issues = "https://github.com/anam-org/pipecat-anam/issues"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+ignore = ["BLE001"]
 
 [tool.mypy]
 python_version = "3.10"

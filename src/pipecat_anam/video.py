@@ -13,7 +13,6 @@ as synchronized raw audio/video frames.
 """
 
 import asyncio
-from typing import Optional
 
 from anam import (
     AgentAudioInputConfig,
@@ -28,7 +27,6 @@ from anam import (
 )
 from av.audio.resampler import AudioResampler
 from loguru import logger
-
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     CancelFrame,
@@ -74,10 +72,12 @@ class AnamVideoService(AIService):
         *,
         api_key: str,
         persona_config: PersonaConfig,
-        ice_servers: Optional[list[dict]] = None,
-        api_base_url: Optional[str] = None,
-        api_version: Optional[str] = None,
+        ice_servers: list[dict] | None = None,
+        api_base_url: str | None = None,
+        api_version: str | None = None,
         enable_session_replay: bool = True,
+        video_width: int | None = None,
+        video_height: int | None = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -89,8 +89,15 @@ class AnamVideoService(AIService):
             api_base_url: Base URL for the Anam API.
             api_version: API version to use.
             enable_session_replay: Whether to enable session recording on Anam's backend.
+            video_width: Requested avatar output width. Must be provided with ``video_height``.
+            video_height: Requested avatar output height. Must be provided with ``video_width``.
             **kwargs: Additional arguments passed to parent AIService.
+
+        Raises:
+            ValueError: if only one of ``video_width`` / ``video_height`` is provided.
         """
+        if (video_width is None) != (video_height is None):
+            raise ValueError("video_width and video_height must be provided together")
         super().__init__(settings=ServiceSettings(model=None), **kwargs)
         self._api_key = api_key
         self._persona_config = persona_config
@@ -98,14 +105,16 @@ class AnamVideoService(AIService):
         self._api_base_url = api_base_url
         self._api_version = api_version
         self._enable_session_replay = enable_session_replay
+        self._video_width = video_width
+        self._video_height = video_height
 
-        self._client: Optional[AnamClient] = None
-        self._anam_session: Optional[Session] = None
-        self._agent_audio_stream: Optional[AgentAudioInputStream] = None
-        self._send_task: Optional[asyncio.Task] = None
-        self._video_task: Optional[asyncio.Task] = None
-        self._audio_task: Optional[asyncio.Task] = None
-        self._connect_task: Optional[asyncio.Task] = None
+        self._client: AnamClient | None = None
+        self._anam_session: Session | None = None
+        self._agent_audio_stream: AgentAudioInputStream | None = None
+        self._send_task: asyncio.Task | None = None
+        self._video_task: asyncio.Task | None = None
+        self._audio_task: asyncio.Task | None = None
+        self._connect_task: asyncio.Task | None = None
         self._queue: asyncio.Queue[TTSStartedFrame | TTSAudioRawFrame | TTSStoppedFrame] = (
             asyncio.Queue()
         )
@@ -185,8 +194,14 @@ class AnamVideoService(AIService):
         """Establish the Anam session and prepare audio/video tasks."""
         try:
             logger.debug("Connecting to Anam Avatar service")
+            session_options_kwargs: dict = {
+                "enable_session_replay": self._enable_session_replay,
+            }
+            if self._video_width is not None and self._video_height is not None:
+                session_options_kwargs["video_width"] = self._video_width
+                session_options_kwargs["video_height"] = self._video_height
             self._anam_session = await self._client.connect_async(
-                session_options=SessionOptions(enable_session_replay=self._enable_session_replay)
+                session_options=SessionOptions(**session_options_kwargs)
             )
             audio_config = AgentAudioInputConfig(
                 encoding="pcm_s16le",
@@ -299,7 +314,7 @@ class AnamVideoService(AIService):
         """
         return True
 
-    def _normalize_tts_context_id(self, context_id: Optional[str]) -> str:
+    def _normalize_tts_context_id(self, context_id: str | None) -> str:
         """Normalize optional Pipecat TTS context IDs for local tracking."""
         return context_id if context_id is not None else "__legacy__"
 
@@ -376,7 +391,7 @@ class AnamVideoService(AIService):
         logger.info(f"Anam session ready (session_id={self._anam_session.session_id})")
         self._session_ready_event.set()
 
-    async def _on_connection_closed(self, code: str, reason: Optional[str]) -> None:
+    async def _on_connection_closed(self, code: str, reason: str | None) -> None:
         """Handle connection closed event.
 
         Client and session are closed by the SDK prior to emitting this event.

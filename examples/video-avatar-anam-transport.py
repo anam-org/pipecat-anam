@@ -25,6 +25,8 @@ Optional env vars:
 
     ANAM_AVATAR_ID         Avatar id (defaults to a public sample).
     ANAM_AVATAR_MODEL      Avatar model.
+    ANAM_VIDEO_WIDTH       Avatar output width. Defaults to ``1152`` (Cara-4 landscape).
+    ANAM_VIDEO_HEIGHT      Avatar output height. Defaults to ``768`` (Cara-4 landscape).
     DAILY_AVATAR_USER_NAME Avatar display name. Must match the ``user_name``
                            claim in ``DAILY_AVATAR_TOKEN``. Defaults to
                            ``"anam-avatar"``.
@@ -61,6 +63,9 @@ logger.add(sys.stderr, level="DEBUG")
 
 
 async def main():
+    video_width = int(os.getenv("ANAM_VIDEO_WIDTH", "1152"))
+    video_height = int(os.getenv("ANAM_VIDEO_HEIGHT", "768"))
+
     transport = AnamTransport(
         api_key=os.environ["ANAM_API_KEY"],
         persona_config=PersonaConfig(
@@ -77,6 +82,8 @@ async def main():
         daily_avatar_token=os.getenv("DAILY_AVATAR_TOKEN"),
         daily_bot_token=os.getenv("DAILY_BOT_TOKEN"),
         daily_avatar_user_name=os.getenv("DAILY_AVATAR_USER_NAME"),
+        video_width=video_width,
+        video_height=video_height,
     )
 
     stt = DeepgramSTTService(api_key=os.environ["DEEPGRAM_API_KEY"])

@@ -97,12 +97,17 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     )
     logger.info(f"Persona config: {persona_config}")
 
+    video_width = os.getenv("ANAM_VIDEO_WIDTH")
+    video_height = os.getenv("ANAM_VIDEO_HEIGHT")
+
     anam = AnamVideoService(
         api_key=api_key,
         persona_config=persona_config,
         api_base_url="https://api.anam.ai",
         api_version="v1",
         enable_session_replay=False,
+        video_width=int(video_width) if video_width else None,
+        video_height=int(video_height) if video_height else None,
     )
 
     messages = [
