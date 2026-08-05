@@ -148,7 +148,7 @@ transport = AnamTransport(
     api_key=os.environ["ANAM_API_KEY"],
     persona_config=persona_config,
     daily_room_url=os.environ["DAILY_ROOM_URL"],
-    show_ai_avatar_disclosure=False,
+    show_ai_avatar_disclosure=True,
 )
 ```
 
