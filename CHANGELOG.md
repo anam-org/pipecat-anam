@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.4 (2026-08-05)
+
+### Bug Fixes
+
+- Treat empty env vars as unset for optional session options
+  ([`52693d9`](https://github.com/anam-org/pipecat-anam/commit/52693d9b85583a0f4a5f266f3c2dc00dec1edd7d))
+
+### Features
+
+- Show_ai_avatar_disclosure session option
+  ([`aeca44d`](https://github.com/anam-org/pipecat-anam/commit/aeca44df6cfe52d87060fe556b82e4d0d1f30b63))
+
+
 ## v0.2.0-alpha.3 (2026-08-04)
 
 ### Features
