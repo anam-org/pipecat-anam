@@ -2,7 +2,7 @@
 # Copyright (c) 2024-2026, Daily
 # Copyright (c) 2026, Anam
 #
-# SPDX-License-Identifier: BSD 2-Clause License
+# SPDX-License-Identifier: BSD-2-Clause
 #
 
 """Unit tests for the ``show_ai_avatar_disclosure`` option on both
