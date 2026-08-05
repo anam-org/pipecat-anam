@@ -78,6 +78,7 @@ class AnamVideoService(AIService):
         enable_session_replay: bool = True,
         video_width: int | None = None,
         video_height: int | None = None,
+        show_ai_avatar_disclosure: bool | None = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -91,6 +92,9 @@ class AnamVideoService(AIService):
             enable_session_replay: Whether to enable session recording on Anam's backend.
             video_width: Requested avatar output width. Must be provided with ``video_height``.
             video_height: Requested avatar output height. Must be provided with ``video_width``.
+            show_ai_avatar_disclosure: Use this when you want to disclose to the user
+                that they're talking to an AI avatar via a watermark. Optional
+                pass-through to the Anam SDK's session options. Anam default is ``False``.
             **kwargs: Additional arguments passed to parent AIService.
 
         Raises:
@@ -107,6 +111,7 @@ class AnamVideoService(AIService):
         self._enable_session_replay = enable_session_replay
         self._video_width = video_width
         self._video_height = video_height
+        self._show_ai_avatar_disclosure = show_ai_avatar_disclosure
 
         self._client: AnamClient | None = None
         self._anam_session: Session | None = None
@@ -200,6 +205,10 @@ class AnamVideoService(AIService):
             if self._video_width is not None and self._video_height is not None:
                 session_options_kwargs["video_width"] = self._video_width
                 session_options_kwargs["video_height"] = self._video_height
+            if self._show_ai_avatar_disclosure is not None:
+                session_options_kwargs["show_ai_avatar_disclosure"] = (
+                    self._show_ai_avatar_disclosure
+                )
             self._anam_session = await self._client.connect_async(
                 session_options=SessionOptions(**session_options_kwargs)
             )
