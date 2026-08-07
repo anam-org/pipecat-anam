@@ -13,6 +13,7 @@ as synchronized raw audio/video frames.
 """
 
 import asyncio
+import inspect
 
 from anam import (
     AgentAudioInputConfig,
@@ -79,6 +80,7 @@ class AnamVideoService(AIService):
         video_width: int | None = None,
         video_height: int | None = None,
         show_ai_avatar_disclosure: bool | None = None,
+        environment: dict | None = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -95,6 +97,14 @@ class AnamVideoService(AIService):
             show_ai_avatar_disclosure: Use this when you want to disclose to the user
                 that they're talking to an AI avatar via a watermark. Optional
                 pass-through to the Anam SDK's session options. Anam default is ``False``.
+            environment: Engine routing overrides for non-production targets
+                (optional), e.g. ``{"podName": ...}`` to pin the session to a
+                specific engine pod. Forwarded verbatim to
+                ``ClientOptions.environment``, which the SDK sends as the
+                session request's ``environment`` field. Requires an Anam SDK
+                revision whose ``ClientOptions`` accepts ``environment``;
+                passing it against an older SDK raises at ``setup`` time rather
+                than silently dropping the routing.
             **kwargs: Additional arguments passed to parent AIService.
 
         Raises:
@@ -112,6 +122,7 @@ class AnamVideoService(AIService):
         self._video_width = video_width
         self._video_height = video_height
         self._show_ai_avatar_disclosure = show_ai_avatar_disclosure
+        self._environment = environment
 
         self._client: AnamClient | None = None
         self._anam_session: Session | None = None
@@ -140,16 +151,30 @@ class AnamVideoService(AIService):
         """
         await super().setup(setup)
 
+        option_kwargs = {
+            "api_base_url": self._api_base_url or "https://api.anam.ai",
+            "ice_servers": self._ice_servers,
+            "api_version": self._api_version,
+            "client_label": "Pipecat:AnamVideoService",
+        }
+        # Forward engine routing only when requested. `environment` was added to
+        # ClientOptions in a later SDK revision; guard on the signature so an
+        # older SDK fails loudly instead of silently dropping the pod pin (which
+        # would route the session to a default engine).
+        if self._environment:
+            if "environment" not in inspect.signature(ClientOptions).parameters:
+                raise RuntimeError(
+                    "environment routing was requested but the installed Anam SDK's "
+                    "ClientOptions does not accept `environment`; upgrade the SDK or "
+                    "omit the environment argument."
+                )
+            option_kwargs["environment"] = self._environment
+
         # Initialize Anam client
         self._client = AnamClient(
             api_key=self._api_key,
             persona_config=self._persona_config,
-            options=ClientOptions(
-                api_base_url=self._api_base_url or "https://api.anam.ai",
-                ice_servers=self._ice_servers,
-                api_version=self._api_version,
-                client_label="Pipecat:AnamVideoService",
-            ),
+            options=ClientOptions(**option_kwargs),
         )
 
         # Register event handlers
