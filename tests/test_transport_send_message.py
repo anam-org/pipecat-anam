@@ -45,6 +45,8 @@ def make_client() -> AnamTransportClient:
         video_width=None,
         video_height=None,
         show_ai_avatar_disclosure=None,
+        region=None,
+        region_policy=None,
         params=AnamParams(),
         on_connected=AsyncMock(),
         on_participant_connected=AsyncMock(),

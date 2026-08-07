@@ -29,6 +29,9 @@ Optional env vars:
     ANAM_VIDEO_HEIGHT      Avatar output height. Defaults to ``768`` (Cara-4 landscape).
     ANAM_SHOW_AI_AVATAR_DISCLOSURE
                            Show the AI avatar disclosure watermark. Anam default is ``False``.
+    ANAM_REGION            Region for the avatar session (Enterprise). See
+                           https://docs.anam.ai/personas/session/regions.
+    ANAM_REGION_POLICY     ``preferred`` or ``strict``. See regions docs above.
     DAILY_AVATAR_USER_NAME Avatar display name. Must match the ``user_name``
                            claim in ``DAILY_AVATAR_TOKEN``. Defaults to
                            ``"anam-avatar"``.
@@ -68,6 +71,7 @@ async def main():
     video_width = int(os.getenv("ANAM_VIDEO_WIDTH") or "1152")
     video_height = int(os.getenv("ANAM_VIDEO_HEIGHT") or "768")
     show_ai_avatar_disclosure = os.getenv("ANAM_SHOW_AI_AVATAR_DISCLOSURE")
+    region_policy = os.getenv("ANAM_REGION_POLICY")
 
     transport = AnamTransport(
         api_key=os.environ["ANAM_API_KEY"],
@@ -90,6 +94,8 @@ async def main():
         show_ai_avatar_disclosure=(
             show_ai_avatar_disclosure.lower() == "true" if show_ai_avatar_disclosure else None
         ),
+        region=os.getenv("ANAM_REGION") or None,
+        region_policy=region_policy or None,
     )
 
     stt = DeepgramSTTService(api_key=os.environ["DEEPGRAM_API_KEY"])

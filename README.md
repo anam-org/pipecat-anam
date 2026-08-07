@@ -152,6 +152,33 @@ transport = AnamTransport(
 )
 ```
 
+### Session region
+
+Both `AnamVideoService` and `AnamTransport` accept optional `region` and `region_policy`
+session options (Enterprise plans). See
+[Session Regions](https://docs.anam.ai/personas/session/regions) for available regions,
+policies, and plan requirements — additional regions may be introduced over time.
+
+```python
+transport = AnamTransport(
+    api_key=os.environ["ANAM_API_KEY"],
+    persona_config=persona_config,
+    daily_room_url=os.environ["DAILY_ROOM_URL"],
+    region="eu",  # example; see docs for available regions
+    region_policy="strict",
+)
+```
+
+`region` on its own is a preference: the default `region_policy="preferred"` lets the
+session fall back to another region when the requested one has no capacity, and the
+fallback is logged as a warning. Use `region_policy="strict"` when you need a
+data-residency guarantee — the connection then fails rather than falling back.
+`region_policy="strict"` without a `region` raises `ValueError`.
+
+In the `AnamTransport` path only the Anam session is pinned — the Daily room is yours, so
+its own media routing is unaffected. Pin the Daily room separately if the whole call has
+to stay in one region.
+
 ## Initializing the Anam avatar session
 
 `AnamVideoService` opens its connection to the Anam Backend asynchronously. The `StartFrame` is propagated downstream immediately so the rest of the pipeline (LLM/TTS/...) can warm up in parallel. TTS audio starts forwarding once the avatar is ready; any TTS produced before then is held back so it doesn't get dropped on the way in or accumulates latency.
