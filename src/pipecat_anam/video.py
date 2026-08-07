@@ -13,6 +13,7 @@ as synchronized raw audio/video frames.
 """
 
 import asyncio
+from typing import Literal
 
 from anam import (
     AgentAudioInputConfig,
@@ -79,6 +80,8 @@ class AnamVideoService(AIService):
         video_width: int | None = None,
         video_height: int | None = None,
         show_ai_avatar_disclosure: bool | None = None,
+        region: str | None = None,
+        region_policy: Literal["preferred", "strict"] | None = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -95,13 +98,26 @@ class AnamVideoService(AIService):
             show_ai_avatar_disclosure: Use this when you want to disclose to the user
                 that they're talking to an AI avatar via a watermark. Optional
                 pass-through to the Anam SDK's session options. Anam default is ``False``.
+            region: Requested region for the avatar session. See
+                https://docs.anam.ai/personas/session/regions for available regions;
+                additional regions may be introduced over time. Enterprise plans only.
+            region_policy: ``"preferred"`` or ``"strict"``. See
+                https://docs.anam.ai/personas/session/regions.
             **kwargs: Additional arguments passed to parent AIService.
 
         Raises:
-            ValueError: if only one of ``video_width`` / ``video_height`` is provided.
+            ValueError: if only one of ``video_width`` / ``video_height`` is provided,
+                if ``region_policy`` is not ``"preferred"`` or ``"strict"``, or if
+                ``region_policy="strict"`` is set without a ``region``.
         """
         if (video_width is None) != (video_height is None):
             raise ValueError("video_width and video_height must be provided together")
+        # Validate here as well as in the Anam SDK's SessionOptions so a bad value fails
+        # at construction rather than at StartFrame, deep inside pipeline startup.
+        if region_policy is not None and region_policy not in ("preferred", "strict"):
+            raise ValueError('region_policy must be either "preferred" or "strict"')
+        if region_policy == "strict" and region is None:
+            raise ValueError('region_policy="strict" requires region to be set')
         super().__init__(settings=ServiceSettings(model=None), **kwargs)
         self._api_key = api_key
         self._persona_config = persona_config
@@ -112,6 +128,8 @@ class AnamVideoService(AIService):
         self._video_width = video_width
         self._video_height = video_height
         self._show_ai_avatar_disclosure = show_ai_avatar_disclosure
+        self._region = region
+        self._region_policy = region_policy
 
         self._client: AnamClient | None = None
         self._anam_session: Session | None = None
@@ -170,6 +188,19 @@ class AnamVideoService(AIService):
         client.remove_listener(AnamEvent.SESSION_READY, self._on_session_ready)
         client.remove_listener(AnamEvent.CONNECTION_CLOSED, self._on_connection_closed)
 
+    def _log_served_region(self, served_region: str | None) -> None:
+        """Log which region served the session, warning loudly on a cross-region fallback."""
+        if served_region is None:
+            return
+        if self._region is not None and served_region != self._region:
+            logger.warning(
+                f"Anam session requested region {self._region!r} but was served by "
+                f"{served_region!r}. Pass region_policy='strict' to fail the connection "
+                "instead of falling back to another region."
+            )
+        else:
+            logger.debug(f"Anam session served by region {served_region}")
+
     async def _shutdown_client(self) -> None:
         """Detach listeners, close the session, and clean up local resources."""
         client = self._client
@@ -209,9 +240,14 @@ class AnamVideoService(AIService):
                 session_options_kwargs["show_ai_avatar_disclosure"] = (
                     self._show_ai_avatar_disclosure
                 )
+            if self._region is not None:
+                session_options_kwargs["region"] = self._region
+            if self._region_policy is not None:
+                session_options_kwargs["region_policy"] = self._region_policy
             self._anam_session = await self._client.connect_async(
                 session_options=SessionOptions(**session_options_kwargs)
             )
+            self._log_served_region(self._anam_session.region)
             audio_config = AgentAudioInputConfig(
                 encoding="pcm_s16le",
                 sample_rate=frame.audio_out_sample_rate,

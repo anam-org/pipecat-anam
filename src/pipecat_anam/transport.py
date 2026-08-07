@@ -19,7 +19,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 from anam import (
     AgentAudioInputConfig,
@@ -133,6 +133,8 @@ class AnamTransportClient:
         video_width: int | None,
         video_height: int | None,
         show_ai_avatar_disclosure: bool | None,
+        region: str | None,
+        region_policy: Literal["preferred", "strict"] | None,
         params: AnamParams,
         on_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
         on_participant_connected: Callable[[Mapping[str, Any]], Awaitable[None]],
@@ -152,6 +154,8 @@ class AnamTransportClient:
         self._video_width = video_width
         self._video_height = video_height
         self._show_ai_avatar_disclosure = show_ai_avatar_disclosure
+        self._region = region
+        self._region_policy = region_policy
         self._params = params
         self._on_connected = on_connected
         self._on_participant_connected = on_participant_connected
@@ -288,8 +292,27 @@ class AnamTransportClient:
 
         if self._show_ai_avatar_disclosure is not None:
             session_options_kwargs["show_ai_avatar_disclosure"] = self._show_ai_avatar_disclosure
+
+        if self._region is not None:
+            session_options_kwargs["region"] = self._region
+        if self._region_policy is not None:
+            session_options_kwargs["region_policy"] = self._region_policy
         session_options = SessionOptions(**session_options_kwargs)
         self._session = await anam_client.connect_async(session_options=session_options)
+        self._log_served_region(self._session.region)
+
+    def _log_served_region(self, served_region: str | None) -> None:
+        """Log which region served the session, warning loudly on a cross-region fallback."""
+        if served_region is None:
+            return
+        if self._region is not None and served_region != self._region:
+            logger.warning(
+                f"Anam session requested region {self._region!r} but was served by "
+                f"{served_region!r}. Pass region_policy='strict' to fail the connection "
+                "instead of falling back to another region."
+            )
+        else:
+            logger.debug(f"Anam session served by region {served_region}")
 
     def _create_agent_audio_stream(self, frame: StartFrame) -> None:
         if self._session is None:
@@ -725,6 +748,8 @@ class AnamTransport(BaseTransport):
         video_width: int | None = None,
         video_height: int | None = None,
         show_ai_avatar_disclosure: bool | None = None,
+        region: str | None = None,
+        region_policy: Literal["preferred", "strict"] | None = None,
         input_name: str | None = None,
         output_name: str | None = None,
     ) -> None:
@@ -750,16 +775,32 @@ class AnamTransport(BaseTransport):
             show_ai_avatar_disclosure: Use this when you want to disclose to the user
                 that they're talking to an AI avatar via a watermark. Optional
                 pass-through to the Anam SDK's session options. Anam default is ``False``.
+            region: Requested region for the avatar session. See
+                https://docs.anam.ai/personas/session/regions for available regions;
+                additional regions may be introduced over time. Enterprise plans only.
+                Only the Anam session is pinned; the Daily room is yours, so its own
+                media routing is unaffected — pin the Daily room separately if the whole
+                call has to stay in one region.
+            region_policy: ``"preferred"`` or ``"strict"``. See
+                https://docs.anam.ai/personas/session/regions.
             input_name, output_name: Optional Pipecat transport names.
 
         Raises:
-            ValueError: if ``persona_config.enable_audio_passthrough`` is not True.
+            ValueError: if ``persona_config.enable_audio_passthrough`` is not True, if
+                ``region_policy`` is not ``"preferred"`` or ``"strict"``, or if
+                ``region_policy="strict"`` is set without a ``region``.
         """
         # ``enable_audio_passthrough`` must be true for the avatar to be driven by your TTS.
         if not persona_config.enable_audio_passthrough:
             raise ValueError("AnamTransport requires PersonaConfig(enable_audio_passthrough=True).")
         if (video_width is None) != (video_height is None):
             raise ValueError("video_width and video_height must be provided together")
+        # Validate here as well as in the Anam SDK's SessionOptions so a bad value fails
+        # at construction rather than at StartFrame, deep inside pipeline startup.
+        if region_policy is not None and region_policy not in ("preferred", "strict"):
+            raise ValueError('region_policy must be either "preferred" or "strict"')
+        if region_policy == "strict" and region is None:
+            raise ValueError('region_policy="strict" requires region to be set')
         super().__init__(input_name=input_name, output_name=output_name)
         self._params = params
         self._daily_avatar_user_name = daily_avatar_user_name or ANAM_AVATAR_USER_NAME
@@ -778,6 +819,8 @@ class AnamTransport(BaseTransport):
             video_width=video_width,
             video_height=video_height,
             show_ai_avatar_disclosure=show_ai_avatar_disclosure,
+            region=region,
+            region_policy=region_policy,
             params=params,
             on_connected=self._on_connected,
             on_participant_connected=self._on_participant_connected,

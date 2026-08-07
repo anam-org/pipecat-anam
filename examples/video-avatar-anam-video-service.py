@@ -100,6 +100,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     video_width = os.getenv("ANAM_VIDEO_WIDTH")
     video_height = os.getenv("ANAM_VIDEO_HEIGHT")
     show_ai_avatar_disclosure = os.getenv("ANAM_SHOW_AI_AVATAR_DISCLOSURE")
+    region_policy = os.getenv("ANAM_REGION_POLICY")
 
     anam = AnamVideoService(
         api_key=api_key,
@@ -112,6 +113,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         show_ai_avatar_disclosure=(
             show_ai_avatar_disclosure.lower() == "true" if show_ai_avatar_disclosure else None
         ),
+        region=os.getenv("ANAM_REGION") or None,
+        region_policy=region_policy or None,
     )
 
     messages = [
