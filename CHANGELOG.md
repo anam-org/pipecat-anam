@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.5 (2026-08-07)
+
+### Features
+
+- Session region and region policy options ([#28](https://github.com/anam-org/pipecat-anam/pull/28),
+  [`e460a13`](https://github.com/anam-org/pipecat-anam/commit/e460a138a2b7422b2ec8f75b706ad1e0e5782747))
+
+
 ## v0.2.0-alpha.4 (2026-08-05)
 
 ### Bug Fixes
