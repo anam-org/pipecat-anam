@@ -81,6 +81,7 @@ class AnamVideoService(AIService):
         video_height: int | None = None,
         show_ai_avatar_disclosure: bool | None = None,
         environment: dict | None = None,
+        dev_settings: dict | None = None,
         **kwargs,
     ) -> None:
         """Initialize the Anam video service.
@@ -105,6 +106,15 @@ class AnamVideoService(AIService):
                 revision whose ``ClientOptions`` accepts ``environment``;
                 passing it against an older SDK raises at ``setup`` time rather
                 than silently dropping the routing.
+            dev_settings: Generic per-session ``devSettings`` overrides
+                (optional), e.g. ``{"low_latency_frame_output": True}`` to force
+                a feature-flag arm on a single session. Forwarded verbatim to
+                ``ClientOptions.dev_settings``, which the SDK sends as the
+                session request's top-level ``devSettings`` object (resolved by
+                the engine ahead of PostHog flags). Requires an Anam SDK
+                revision whose ``ClientOptions`` accepts ``dev_settings``;
+                passing it against an older SDK raises at ``setup`` time rather
+                than silently dropping the override.
             **kwargs: Additional arguments passed to parent AIService.
 
         Raises:
@@ -123,6 +133,7 @@ class AnamVideoService(AIService):
         self._video_height = video_height
         self._show_ai_avatar_disclosure = show_ai_avatar_disclosure
         self._environment = environment
+        self._dev_settings = dev_settings
 
         self._client: AnamClient | None = None
         self._anam_session: Session | None = None
@@ -169,6 +180,20 @@ class AnamVideoService(AIService):
                     "omit the environment argument."
                 )
             option_kwargs["environment"] = self._environment
+
+        # Forward generic per-session devSettings only when requested.
+        # `dev_settings` was added to ClientOptions in a later SDK revision;
+        # guard on the signature so an older SDK fails loudly instead of
+        # silently dropping the override (which would let the engine fall back
+        # to its default feature-flag resolution).
+        if self._dev_settings:
+            if "dev_settings" not in inspect.signature(ClientOptions).parameters:
+                raise RuntimeError(
+                    "devSettings were requested but the installed Anam SDK's "
+                    "ClientOptions does not accept `dev_settings`; upgrade the SDK or "
+                    "omit the dev_settings argument."
+                )
+            option_kwargs["dev_settings"] = self._dev_settings
 
         # Initialize Anam client
         self._client = AnamClient(
