@@ -222,7 +222,9 @@ class AnamVideoService(AIService):
 
         self._session_ready_event.clear()
         if self._audio_out_sample_rate is None:
-            raise RuntimeError("AnamVideoService audio_out_sample_rate not set. Call setup() first.")
+            raise RuntimeError(
+                "AnamVideoService audio_out_sample_rate not set. Call setup() first."
+            )
         self._anam_resampler = AudioResampler("s16", "mono", self._audio_out_sample_rate)
 
         # Non-blocking connect.
@@ -233,7 +235,9 @@ class AnamVideoService(AIService):
     async def _connect_session(self) -> None:
         """Establish the Anam session and prepare audio/video tasks."""
         if self._audio_out_sample_rate is None:
-            raise RuntimeError("AnamVideoService audio_out_sample_rate not set. Call setup() first.")
+            raise RuntimeError(
+                "AnamVideoService audio_out_sample_rate not set. Call setup() first."
+            )
         try:
             logger.debug("Connecting to Anam Avatar service")
             session_options_kwargs: dict = {
