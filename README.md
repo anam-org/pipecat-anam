@@ -201,8 +201,6 @@ See the [Daily REST API docs](https://docs.daily.co/reference/rest-api) for `roo
 - `daily_avatar_token` — for the Anam Backend (optional, but required for private rooms). If a `user_name` claim is set, it **must match** `daily_avatar_user_name` (or leave the claim empty). This lets the transport tell the avatar apart from end users. The transport will not forward TTS until the avatar has joined.
 - `daily_bot_token` — for the Pipecat bot itself, used to capture the user's microphone for STT.
 
-Requires `anam==0.8.0` (pinned exactly — see the SDK's experimental-alpha warning).
-
 ```python
 from anam import PersonaConfig
 from pipecat_anam import AnamTransport

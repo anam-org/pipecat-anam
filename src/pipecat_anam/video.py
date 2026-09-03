@@ -553,7 +553,7 @@ class AnamVideoService(AIService):
                 finally:
                     self._queue.task_done()
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if self._agent_audio_stream and waiting_for_end_sequence:
                     await self._agent_audio_stream.end_sequence()
                     active_tts_context_id = None

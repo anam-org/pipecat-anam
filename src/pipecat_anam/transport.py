@@ -251,7 +251,7 @@ class AnamTransportClient:
                     self._avatar_connected_event.wait(),
                     timeout=AVATAR_CONNECT_TIMEOUT,
                 )
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 raise TimeoutError(
                     f"AnamTransport: avatar did not join Daily within {AVATAR_CONNECT_TIMEOUT:.0f}s"
                 ) from exc
