@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## [Unreleased]
+
+### Changed
+
+- Require Pipecat `1.8.0+` and Python `3.11+`. `AnamTransport` no longer calls removed `DailyTransportClient.start()`. If you need Pipecat `<=1.7.x`, use `pipecat-anam` `0.2.0-alpha.5` or earlier.
+- Read agent-audio sample rate from `FrameProcessorSetup` instead of deprecated `StartFrame.audio_out_sample_rate`.
+
 ## v0.2.0-alpha.5 (2026-08-07)
 
 ### Features

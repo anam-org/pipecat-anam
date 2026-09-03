@@ -146,6 +146,7 @@ class AnamVideoService(AIService):
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
         self._session_ready_event = asyncio.Event()
+        self._audio_out_sample_rate: int | None = None
 
     async def setup(self, setup: FrameProcessorSetup):
         """Set up the Anam video service with necessary configuration.
@@ -157,6 +158,7 @@ class AnamVideoService(AIService):
             setup: Configuration parameters for the frame processor.
         """
         await super().setup(setup)
+        self._audio_out_sample_rate = setup.audio_out_sample_rate
 
         # Initialize Anam client
         self._client = AnamClient(
@@ -219,15 +221,19 @@ class AnamVideoService(AIService):
         await super().start(frame)
 
         self._session_ready_event.clear()
-        self._anam_resampler = AudioResampler("s16", "mono", frame.audio_out_sample_rate)
+        if self._audio_out_sample_rate is None:
+            raise RuntimeError("AnamVideoService audio_out_sample_rate not set. Call setup() first.")
+        self._anam_resampler = AudioResampler("s16", "mono", self._audio_out_sample_rate)
 
         # Non-blocking connect.
-        self._connect_task = self.create_task(self._connect_session(frame))
+        self._connect_task = self.create_task(self._connect_session())
         # Start the send task to buffer TTS frames while avatar backend is warming up.
         await self._create_send_task()
 
-    async def _connect_session(self, frame: StartFrame) -> None:
+    async def _connect_session(self) -> None:
         """Establish the Anam session and prepare audio/video tasks."""
+        if self._audio_out_sample_rate is None:
+            raise RuntimeError("AnamVideoService audio_out_sample_rate not set. Call setup() first.")
         try:
             logger.debug("Connecting to Anam Avatar service")
             session_options_kwargs: dict = {
@@ -250,7 +256,7 @@ class AnamVideoService(AIService):
             self._log_served_region(self._anam_session.region)
             audio_config = AgentAudioInputConfig(
                 encoding="pcm_s16le",
-                sample_rate=frame.audio_out_sample_rate,
+                sample_rate=self._audio_out_sample_rate,
                 channels=1,
             )
             self._agent_audio_stream = self._anam_session.create_agent_audio_input_stream(

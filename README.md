@@ -342,8 +342,9 @@ uv run python examples/video-avatar-anam-postfilter.py -t daily
 
 ## Compatibility
 
-- **Tested with Pipecat v0.0.100+**
-- Python 3.10+
+- **Pipecat:** `1.8.0+`. Requires Pipecat 1.8.0 (`DailyTransportClient` lifecycle and audio sample rate handling). If you need Pipecat `1.7.x` or lower, use `pipecat-anam` `0.2.0-alpha.5` or earlier.
+- **Anam SDK:** `0.10.0`
+- Python 3.11+
 - Daily transport or built-in WebRTC transport
 
 ## License
