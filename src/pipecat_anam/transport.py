@@ -169,9 +169,11 @@ class AnamTransportClient:
         self._avatar_connected_event = asyncio.Event()
         # Distinguishes intentional shutdown from an unexpected disconnect.
         self._stop_called: bool = False
+        self._audio_out_sample_rate: int | None = None
 
     async def setup(self, setup: FrameProcessorSetup) -> None:
         """Wire up the Daily client."""
+        self._audio_out_sample_rate = setup.audio_out_sample_rate
         if self._daily_client is not None:
             return
         logger.debug("AnamTransportClient: setting up Daily client")
@@ -233,7 +235,7 @@ class AnamTransportClient:
             raise RuntimeError("AnamTransportClient not initialized. Call setup() first.")
         logger.debug("AnamTransportClient: Connecting to Anam Avatar service")
         anam_task = asyncio.create_task(self._anam_connect())
-        daily_task = asyncio.create_task(self._daily_start_join(frame))
+        daily_task = asyncio.create_task(self._daily_start_join())
         try:
             try:
                 await asyncio.gather(anam_task, daily_task)
@@ -249,13 +251,13 @@ class AnamTransportClient:
                     self._avatar_connected_event.wait(),
                     timeout=AVATAR_CONNECT_TIMEOUT,
                 )
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 raise TimeoutError(
                     f"AnamTransport: avatar did not join Daily within {AVATAR_CONNECT_TIMEOUT:.0f}s"
                 ) from exc
             if self._stop_called:
                 return
-            self._create_agent_audio_stream(frame)
+            self._create_agent_audio_stream()
         except Exception as exc:
             await self.stop()
             await self._on_error(f"AnamTransport failed to start: {exc}")
@@ -314,23 +316,26 @@ class AnamTransportClient:
         else:
             logger.debug(f"Anam session served by region {served_region}")
 
-    def _create_agent_audio_stream(self, frame: StartFrame) -> None:
+    def _create_agent_audio_stream(self) -> None:
         if self._session is None:
             raise RuntimeError(
                 "Anam session was not established before creating agent audio stream"
             )
+        if self._audio_out_sample_rate is None:
+            raise RuntimeError(
+                "AnamTransportClient audio_out_sample_rate not set. Call setup() first."
+            )
         audio_config = AgentAudioInputConfig(
             encoding="pcm_s16le",
-            sample_rate=frame.audio_out_sample_rate,
+            sample_rate=self._audio_out_sample_rate,
             channels=1,
         )
         self._agent_audio_stream = self._session.create_agent_audio_input_stream(audio_config)
 
-    async def _daily_start_join(self, frame: StartFrame) -> None:
-        """Start the Daily client and join the room."""
+    async def _daily_start_join(self) -> None:
+        """Join the Daily room. (Pipecat 1.8.0+ initializes DailyTransportClient in setup())"""
         if self._daily_client is None:
             raise RuntimeError("AnamTransportClient not initialized. Call setup() first.")
-        await self._daily_client.start(frame)
         await self._daily_client.join()
         # DailyTransportClient.join() reports failures via on_error and returns silently.
         # We need a hard raise to prevent returning "successful" while the bot is not in the room.
