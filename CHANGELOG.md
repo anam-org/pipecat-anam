@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.6 (2026-09-04)
+
+### Bug Fixes
+
+- Pipecat 1.8.0 Daily transport lifecycle compatibility
+  ([#30](https://github.com/anam-org/pipecat-anam/pull/30),
+  [`c6d961c`](https://github.com/anam-org/pipecat-anam/commit/c6d961c1fb851bf7f70c446cdc27c32a545f9a4d))
+
+
 ## [Unreleased]
 
 ### Changed
