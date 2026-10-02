@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.7 (2026-10-02)
+
+### Bug Fixes
+
+- **deps**: Bump python-SDK version to 0.12.0
+  ([`cc2c334`](https://github.com/anam-org/pipecat-anam/commit/cc2c33450acf5394edfa1dc3b37df55148130ea7))
+
+
 ## v0.2.0-alpha.6 (2026-09-04)
 
 ### Bug Fixes
