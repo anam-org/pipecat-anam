@@ -28,8 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Require Pipecat `1.8.0+` and Python `3.11+`. `AnamTransport` no longer calls removed `DailyTransportClient.start()`. If you need Pipecat `<=1.7.x`, use `pipecat-anam` `0.2.0-alpha.5` or earlier.
+- Require Pipecat `1.13.0+` and Python `3.11+`. `AnamTransport` no longer calls removed `DailyTransportClient.start()`. If you need an older Pipecat, use `pipecat-anam` `0.2.0-alpha.7` or earlier.
 - Read agent-audio sample rate from `FrameProcessorSetup` instead of deprecated `StartFrame.audio_out_sample_rate`.
+- `AnamTransport` and `AnamVideoService` report unrecoverable errors with `push_error(..., force_treat_as_permanent=True)` instead of the deprecated `fatal=True` (removed in Pipecat 2.0.0). The failing processor is marked unusable and the `PipelineWorker`'s `processor_unusable_policy` decides what happens; pass `processor_unusable_policy=ProcessorUnusablePolicy.CANCEL` to keep the previous behaviour of cancelling the pipeline.
+- `AnamTransport` passes the required `on_network_connection_status_updated` Daily callback and checks a successful Daily join with `_in_call()` instead of the removed `_joined` attribute.
 
 ## v0.2.0-alpha.5 (2026-08-07)
 

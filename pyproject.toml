@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
 dependencies = [
-    "pipecat-ai>=1.8.0",
+    "pipecat-ai>=1.13.0",
     "anam==0.12.0",
     "av>=14.0.0",
 ]
@@ -34,7 +34,7 @@ dev = [
     "mypy>=1.10.0",
 ]
 example = [
-    "pipecat-ai[cartesia,daily,deepgram,google,runner,webrtc]>=1.8.0",
+    "pipecat-ai[cartesia,daily,deepgram,google,runner,webrtc]>=1.13.0",
     "python-dotenv>=1.0",
 ]
 

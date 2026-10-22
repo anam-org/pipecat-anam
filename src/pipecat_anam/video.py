@@ -268,7 +268,7 @@ class AnamVideoService(AIService):
             )
             self._video_task = self.create_task(self._consume_video_frames())
             self._audio_task = self.create_task(self._consume_audio_frames())
-            # Watchdog: surface a fatal error if the avatar backend never signals readiness.
+            # Watchdog: surface an unrecoverable error if the avatar backend never signals readiness.
             await asyncio.wait_for(self._session_ready_event.wait(), timeout=30)
         except Exception as e:
             if isinstance(e, asyncio.TimeoutError):
@@ -277,7 +277,9 @@ class AnamVideoService(AIService):
                 error_msg = f"Error connecting to Anam: {e}"
             logger.error(error_msg)
             await self._close_session()
-            await self.push_error_frame(ErrorFrame(error=error_msg, fatal=True))
+            # The service cannot render without a session, so mark it unusable and let the
+            # PipelineWorker's processor_unusable_policy decide what happens next.
+            await self.push_error(error_msg, exception=e, force_treat_as_permanent=True)
             return
 
     async def stop(self, frame: EndFrame):

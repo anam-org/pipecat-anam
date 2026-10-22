@@ -177,39 +177,47 @@ class AnamTransportClient:
         if self._daily_client is not None:
             return
         logger.debug("AnamTransportClient: setting up Daily client")
-        daily_callbacks = DailyCallbacks(
-            on_active_speaker_changed=partial(
+        callbacks: dict[str, Any] = {
+            "on_active_speaker_changed": partial(
                 self._on_handle_callback, "on_active_speaker_changed"
             ),
-            on_joined=self._on_joined,
-            on_left=self._on_left,
-            on_before_leave=partial(self._on_handle_callback, "on_before_leave"),
-            on_error=self._on_error,
-            on_app_message=partial(self._on_handle_callback, "on_app_message"),
-            on_call_state_updated=partial(self._on_handle_callback, "on_call_state_updated"),
-            on_client_connected=partial(self._on_handle_callback, "on_client_connected"),
-            on_client_disconnected=partial(self._on_handle_callback, "on_client_disconnected"),
-            on_dialin_connected=partial(self._on_handle_callback, "on_dialin_connected"),
-            on_dialin_ready=partial(self._on_handle_callback, "on_dialin_ready"),
-            on_dialin_stopped=partial(self._on_handle_callback, "on_dialin_stopped"),
-            on_dialin_error=partial(self._on_handle_callback, "on_dialin_error"),
-            on_dialin_warning=partial(self._on_handle_callback, "on_dialin_warning"),
-            on_dialout_answered=partial(self._on_handle_callback, "on_dialout_answered"),
-            on_dialout_connected=partial(self._on_handle_callback, "on_dialout_connected"),
-            on_dialout_stopped=partial(self._on_handle_callback, "on_dialout_stopped"),
-            on_dialout_error=partial(self._on_handle_callback, "on_dialout_error"),
-            on_dialout_warning=partial(self._on_handle_callback, "on_dialout_warning"),
-            on_dtmf_event=partial(self._on_handle_callback, "on_dtmf_event"),
-            on_participant_joined=self._on_participant_connected,
-            on_participant_left=self._on_participant_disconnected,
-            on_participant_updated=partial(self._on_handle_callback, "on_participant_updated"),
-            on_transcription_message=partial(self._on_handle_callback, "on_transcription_message"),
-            on_recording_started=partial(self._on_handle_callback, "on_recording_started"),
-            on_recording_stopped=partial(self._on_handle_callback, "on_recording_stopped"),
-            on_recording_error=partial(self._on_handle_callback, "on_recording_error"),
-            on_transcription_stopped=partial(self._on_handle_callback, "on_transcription_stopped"),
-            on_transcription_error=partial(self._on_handle_callback, "on_transcription_error"),
-        )
+            "on_joined": self._on_joined,
+            "on_left": self._on_left,
+            "on_before_leave": partial(self._on_handle_callback, "on_before_leave"),
+            "on_error": self._on_error,
+            "on_app_message": partial(self._on_handle_callback, "on_app_message"),
+            "on_call_state_updated": partial(self._on_handle_callback, "on_call_state_updated"),
+            "on_client_connected": partial(self._on_handle_callback, "on_client_connected"),
+            "on_client_disconnected": partial(self._on_handle_callback, "on_client_disconnected"),
+            "on_dialin_connected": partial(self._on_handle_callback, "on_dialin_connected"),
+            "on_dialin_ready": partial(self._on_handle_callback, "on_dialin_ready"),
+            "on_dialin_stopped": partial(self._on_handle_callback, "on_dialin_stopped"),
+            "on_dialin_error": partial(self._on_handle_callback, "on_dialin_error"),
+            "on_dialin_warning": partial(self._on_handle_callback, "on_dialin_warning"),
+            "on_dialout_answered": partial(self._on_handle_callback, "on_dialout_answered"),
+            "on_dialout_connected": partial(self._on_handle_callback, "on_dialout_connected"),
+            "on_dialout_stopped": partial(self._on_handle_callback, "on_dialout_stopped"),
+            "on_dialout_error": partial(self._on_handle_callback, "on_dialout_error"),
+            "on_dialout_warning": partial(self._on_handle_callback, "on_dialout_warning"),
+            "on_dtmf_event": partial(self._on_handle_callback, "on_dtmf_event"),
+            "on_network_connection_status_updated": partial(
+                self._on_handle_callback, "on_network_connection_status_updated"
+            ),
+            "on_participant_joined": self._on_participant_connected,
+            "on_participant_left": self._on_participant_disconnected,
+            "on_participant_updated": partial(self._on_handle_callback, "on_participant_updated"),
+            "on_transcription_message": partial(
+                self._on_handle_callback, "on_transcription_message"
+            ),
+            "on_recording_started": partial(self._on_handle_callback, "on_recording_started"),
+            "on_recording_stopped": partial(self._on_handle_callback, "on_recording_stopped"),
+            "on_recording_error": partial(self._on_handle_callback, "on_recording_error"),
+            "on_transcription_stopped": partial(
+                self._on_handle_callback, "on_transcription_stopped"
+            ),
+            "on_transcription_error": partial(self._on_handle_callback, "on_transcription_error"),
+        }
+        daily_callbacks = DailyCallbacks(**callbacks)
         self._daily_client = DailyTransportClient(
             self._daily_room_url,
             self._daily_bot_token,
@@ -339,7 +347,7 @@ class AnamTransportClient:
         await self._daily_client.join()
         # DailyTransportClient.join() reports failures via on_error and returns silently.
         # We need a hard raise to prevent returning "successful" while the bot is not in the room.
-        if not getattr(self._daily_client, "_joined", False):
+        if not self._daily_client._in_call():
             raise RuntimeError(f"Failed to join Daily room {self._daily_room_url}")
         await self.update_subscriptions(profile_settings=_OPT_IN_SUBSCRIPTION_PROFILE)
 
@@ -374,7 +382,7 @@ class AnamTransportClient:
     async def _on_left(self) -> None:
         logger.debug("AnamTransportClient: Daily client left the room")
         # Surface unexpected leaves (room ended, kicked, token revoked, ...)
-        # as fatal so the pipeline runner unwinds.
+        # as unrecoverable so the pipeline worker can unwind.
         if not self._stop_called:
             await self._on_error(f"Daily room disconnected unexpectedly: {self._daily_room_url}")
 
@@ -730,10 +738,13 @@ class AnamTransport(BaseTransport):
     - ``on_client_connected(transport, participant)`` / ``on_client_disconnected(...)`` —
       a non-Anam participant joined / left.
     - ``on_avatar_connected(transport, participant)`` / ``on_avatar_disconnected(transport, participant, reason)`` —
-      the Anam egress participant joined / left. Disconnect forces a fatal pipeline
-      shutdown since the avatar does not auto-rejoin.
-    - ``on_error(transport, error)`` — unrecoverable transport error; a fatal
-      ``ErrorFrame`` is also pushed into the pipeline.
+      the Anam egress participant joined / left. An unexpected disconnect is
+      unrecoverable since the avatar does not auto-rejoin.
+    - ``on_error(transport, error)`` — unrecoverable transport error. The
+      transport also pushes an ``ErrorFrame`` that marks it unusable, so the
+      ``PipelineWorker`` applies its ``processor_unusable_policy``. Pass
+      ``processor_unusable_policy=ProcessorUnusablePolicy.CANCEL`` (or ``END``)
+      to shut the pipeline down; the default ``CONTINUE`` keeps it running.
     """
 
     def __init__(
@@ -877,12 +888,16 @@ class AnamTransport(BaseTransport):
         )
 
     async def _on_fatal_error(self, error: str) -> None:
-        """Propagate an unrecoverable transport error into the pipeline."""
+        """Propagate an unrecoverable transport error into the pipeline.
+
+        The error marks the transport unusable. The ``PipelineWorker`` then acts
+        according to its ``processor_unusable_policy``.
+        """
         await self._call_event_handler("on_error", error)
         if self._input is not None:
-            await self._input.push_error(error_msg=error, fatal=True)
+            await self._input.push_error(error_msg=error, force_treat_as_permanent=True)
         elif self._output is not None:
-            await self._output.push_error(error_msg=error, fatal=True)
+            await self._output.push_error(error_msg=error, force_treat_as_permanent=True)
         else:
             logger.error(f"AnamTransport - fatal error: {error}")
 
@@ -913,7 +928,8 @@ class AnamTransport(BaseTransport):
     ) -> None:
         if self._is_avatar_participant(participant):
             await self._call_event_handler("on_avatar_disconnected", participant, reason)
-            # Fatal: the Anam service does not rejoin a Daily room, so any produced TTS goes nowhere.
+            # Unrecoverable: the Anam service does not rejoin a Daily room, so any
+            # produced TTS goes nowhere.
             if not self._client.stop_called:
                 await self._on_fatal_error(
                     f"Anam avatar participant left Daily room unexpectedly: {reason}"

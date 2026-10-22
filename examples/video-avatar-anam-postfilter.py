@@ -31,8 +31,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import Frame, LLMRunFrame, OutputImageRawFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -48,6 +47,7 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.workers.runner import WorkerRunner
 
 from pipecat_anam import AnamVideoService
 
@@ -182,7 +182,6 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=VIDEO_OUT_SIZE[0],
         video_out_height=VIDEO_OUT_SIZE[1],
-        video_out_bitrate=5_000_000,
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
@@ -191,7 +190,6 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=VIDEO_OUT_SIZE[0],
         video_out_height=VIDEO_OUT_SIZE[1],
-        video_out_bitrate=5_000_000,
     ),
 }
 
@@ -209,7 +207,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="e8e5fffb-252c-436d-b842-8879b84445b6",
+        settings=CartesiaTTSService.Settings(voice="e8e5fffb-252c-436d-b842-8879b84445b6"),
     )
     llm = GoogleLLMService(api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -262,10 +260,13 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
+        # The avatar is required for output. Cancel the pipeline when the Anam session
+        # cannot start.
+        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
     )
 
     @transport.event_handler("on_client_connected")
@@ -281,15 +282,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                 "content": "Start by saying hello and then give a short greeting.",
             }
         )
-        await task.queue_frames([LLMRunFrame()])
+        await worker.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
-        await task.cancel()
+        await worker.cancel()
 
-    runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
-    await runner.run(task)
+    runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
+    await runner.add_workers(worker)
+    await runner.run()
 
 
 async def bot(runner_args: RunnerArguments) -> None:
