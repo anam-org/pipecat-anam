@@ -20,12 +20,15 @@ from pipecat.transports.daily.transport import DailyCallbacks
 from pipecat_anam.transport import _OPT_IN_SUBSCRIPTION_PROFILE
 
 
-def _mock_daily_client(*, in_call: bool) -> MagicMock:
-    return MagicMock(
-        join=AsyncMock(),
-        _in_call=MagicMock(return_value=in_call),
-        leave=AsyncMock(),
-    )
+def _mock_daily_client(client, *, joined: bool) -> MagicMock:
+    daily = MagicMock(leave=AsyncMock())
+
+    async def join() -> None:
+        if joined:
+            await client._on_joined({})
+
+    daily.join = AsyncMock(side_effect=join)
+    return daily
 
 
 @pytest.mark.asyncio
@@ -57,10 +60,10 @@ async def test_setup_builds_daily_callbacks_with_all_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_daily_join_not_in_call_fails_start() -> None:
-    """A Daily join that leaves the bot outside the call fails start() and stops the client."""
+async def test_daily_join_without_on_joined_fails_start() -> None:
+    """A Daily join that never fires on_joined fails start() and stops the client."""
     client = make_client()
-    daily = _mock_daily_client(in_call=False)
+    daily = _mock_daily_client(client, joined=False)
     client._daily_client = daily
     client._anam_connect = AsyncMock()
     client.update_subscriptions = AsyncMock()
@@ -78,10 +81,10 @@ async def test_daily_join_not_in_call_fails_start() -> None:
 
 
 @pytest.mark.asyncio
-async def test_daily_join_in_call_updates_subscriptions() -> None:
+async def test_daily_join_on_joined_updates_subscriptions() -> None:
     """A successful Daily join applies the opt-in subscription profile."""
     client = make_client()
-    daily = _mock_daily_client(in_call=True)
+    daily = _mock_daily_client(client, joined=True)
     client._daily_client = daily
     client.update_subscriptions = AsyncMock()
 

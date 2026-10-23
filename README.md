@@ -340,7 +340,7 @@ uv run python examples/video-avatar-anam-postfilter.py -t daily
 
 ## Compatibility
 
-- **Pipecat:** `1.13.0+`. Requires Pipecat 1.13 (`DailyCallbacks.on_network_connection_status_updated` and `DailyTransportClient._in_call()`). If you need Pipecat `1.12` or lower, use `pipecat-anam` `0.2.0-alpha.7` or earlier.
+- **Pipecat:** `1.13.0+`. Requires Pipecat 1.13 (`DailyCallbacks.on_network_connection_status_updated` and join success via `on_joined`). If you need Pipecat `1.12` or lower, use `pipecat-anam` `0.2.0-alpha.7` or earlier.
 - **Anam SDK:** `0.12.0`
 - Python 3.11+
 - Daily transport or built-in WebRTC transport

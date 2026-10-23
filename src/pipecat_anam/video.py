@@ -509,15 +509,15 @@ class AnamVideoService(AIService):
     async def _close_session(self):
         """Close the Anam client."""
         await self._cancel_send_task()
-        if self._client and self._anam_session and self._anam_session.is_active:
+        session = self._anam_session
+        if self._client and session is not None and session.is_active:
             try:
                 logger.debug("Disconnecting from Anam")
-                await self._anam_session.close()
+                await session.close()
             except Exception as e:
                 logger.warning(f"Error closing Anam session: {e}")
-            finally:
-                self._anam_session = None
-                self._client = None
+        self._anam_session = None
+        self._client = None
 
     async def _create_send_task(self):
         """Create the audio sending task if it doesn't exist."""

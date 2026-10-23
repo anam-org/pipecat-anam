@@ -468,15 +468,13 @@ async def test_client_daily_left_after_stop_is_not_an_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_client_daily_left_without_stop_reports_error() -> None:
-    """Leaving Daily without stop() (room ended, kicked, ...) is reported."""
+async def test_client_daily_left_without_stop_does_not_report_error() -> None:
+    """on_left is only used for intentional leave(); unexpected loss uses Daily on_error."""
     client = make_client()
 
     await client._on_left()
 
-    client._on_error.assert_awaited_once()
-    [message] = client._on_error.await_args.args
-    assert "Daily room disconnected unexpectedly" in message
+    client._on_error.assert_not_awaited()
 
 
 # --- AnamVideoService._report_unrecoverable_error -----------------------------------

@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AnamTransport` and `AnamVideoService` report unrecoverable errors with `push_error(..., force_treat_as_permanent=True)` instead of the deprecated `fatal=True` (removed in Pipecat 2.0.0). Before reporting, they tear down their own transport side: `AnamTransport` closes the Anam session and leaves Daily; `AnamVideoService` closes the Anam session and stops its frame consumers. Each reports the error once. The failing processor is marked unusable; the `PipelineWorker`'s `processor_unusable_policy` (default `CONTINUE` in Pipecat 1.13) decides whether the worker keeps running, ends gracefully, or cancels.
 - On avatar loss (avatar leaves Daily, Anam session closes unexpectedly, or Daily disconnects), `AnamTransport` closes the Anam session and leaves the Daily room. It does not cancel the `PipelineWorker`; with the default `CONTINUE` policy the worker keeps running, so end it from your `on_error` handler if needed.
 - `AnamVideoService` now treats video/audio frame consumer failures and abnormal Anam connection closes as unrecoverable, like connect failures.
-- `AnamTransport` passes the required `on_network_connection_status_updated` Daily callback and checks a successful Daily join with `_in_call()` instead of the removed `_joined` attribute.
+- `AnamTransport` passes the required `on_network_connection_status_updated` Daily callback and checks a successful Daily join via the `on_joined` callback instead of the removed `_joined` attribute.
 
 ## v0.2.0-alpha.5 (2026-08-07)
 
