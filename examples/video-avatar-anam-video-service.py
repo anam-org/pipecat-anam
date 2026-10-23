@@ -18,8 +18,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -31,6 +30,7 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.workers.runner import WorkerRunner
 
 from pipecat_anam import AnamVideoService
 
@@ -46,6 +46,19 @@ missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
 if missing:
     raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
+# Replaces deprecated TransportParams.video_out_bitrate for Daily camera publish.
+_CAMERA_OUT_SEND_SETTINGS_5_MBPS = {
+    "maxQuality": "high",
+    "startBitrate": 5_000_000,
+    "encodings": {
+        "high": {
+            "maxBitrate": 5_000_000,
+            "maxFramerate": 25,
+            "scaleResolutionDownBy": 1,
+        },
+    },
+}
+
 transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
@@ -54,7 +67,7 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=720,
         video_out_height=480,
-        video_out_bitrate=5_000_000,
+        camera_out_send_settings=_CAMERA_OUT_SEND_SETTINGS_5_MBPS,
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
@@ -63,7 +76,6 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=720,
         video_out_height=480,
-        video_out_bitrate=5_000_000,
     ),
 }
 
@@ -77,7 +89,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="e8e5fffb-252c-436d-b842-8879b84445b6",
+        settings=CartesiaTTSService.Settings(voice="e8e5fffb-252c-436d-b842-8879b84445b6"),
     )
     llm = GoogleLLMService(api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -148,7 +160,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
             enable_metrics=True,
@@ -176,15 +188,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 "content": "Start by saying 'Hello' and then a short greeting.",
             }
         )
-        await task.queue_frames([LLMRunFrame()])
+        await worker.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
-        await task.cancel()
+        await worker.cancel()
 
-    runner = PipelineRunner(handle_sigint=runner_args.handle_sigint)
-    await runner.run(task)
+    runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
+    await runner.add_workers(worker)
+    await runner.run()
 
 
 async def bot(runner_args: RunnerArguments):

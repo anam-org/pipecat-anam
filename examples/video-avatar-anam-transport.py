@@ -48,8 +48,7 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMRunFrame, OutputTransportMessageUrgentFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContext,
     LLMContextAggregatorPair,
@@ -58,6 +57,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.google.llm import GoogleLLMService
+from pipecat.workers.runner import WorkerRunner
 
 from pipecat_anam import AnamTransport
 
@@ -132,7 +132,7 @@ async def main():
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
             enable_metrics=True,
@@ -149,7 +149,7 @@ async def main():
                 "content": "Start by saying 'Hello' and then a short greeting.",
             }
         )
-        await task.queue_frames([LLMRunFrame()])
+        await worker.queue_frames([LLMRunFrame()])
 
         # Demonstrate broadcasting a Daily app-message from the bot. This reaches every
         # other participant in the room over the data channel, independent of TTS/audio.
@@ -162,7 +162,7 @@ async def main():
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, participant):
         logger.info("Client disconnected")
-        await task.cancel()
+        await worker.cancel()
 
     @transport.event_handler("on_avatar_connected")
     async def on_avatar_connected(transport, participant):
@@ -174,9 +174,9 @@ async def main():
     async def on_avatar_disconnected(transport, participant, reason):
         logger.info(f"Avatar disconnected. Reason: {reason}")
 
-    runner = PipelineRunner()
-
-    await runner.run(task)
+    runner = WorkerRunner()
+    await runner.add_workers(worker)
+    await runner.run()
 
 
 if __name__ == "__main__":

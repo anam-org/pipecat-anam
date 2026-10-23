@@ -169,6 +169,8 @@ class AnamTransportClient:
         self._avatar_connected_event = asyncio.Event()
         # Distinguishes intentional shutdown from an unexpected disconnect.
         self._stop_called: bool = False
+        # Set in :meth:`_on_joined` when Daily reports a successful bot join.
+        self._bot_joined_daily: bool = False
         self._audio_out_sample_rate: int | None = None
 
     async def setup(self, setup: FrameProcessorSetup) -> None:
@@ -200,6 +202,9 @@ class AnamTransportClient:
             on_dialout_error=partial(self._on_handle_callback, "on_dialout_error"),
             on_dialout_warning=partial(self._on_handle_callback, "on_dialout_warning"),
             on_dtmf_event=partial(self._on_handle_callback, "on_dtmf_event"),
+            on_network_connection_status_updated=partial(
+                self._on_handle_callback, "on_network_connection_status_updated"
+            ),
             on_participant_joined=self._on_participant_connected,
             on_participant_left=self._on_participant_disconnected,
             on_participant_updated=partial(self._on_handle_callback, "on_participant_updated"),
@@ -337,9 +342,9 @@ class AnamTransportClient:
         if self._daily_client is None:
             raise RuntimeError("AnamTransportClient not initialized. Call setup() first.")
         await self._daily_client.join()
-        # DailyTransportClient.join() reports failures via on_error and returns silently.
+        # DailyTransportClient.join() invokes on_joined before returning on success.
         # We need a hard raise to prevent returning "successful" while the bot is not in the room.
-        if not getattr(self._daily_client, "_joined", False):
+        if not self._bot_joined_daily:
             raise RuntimeError(f"Failed to join Daily room {self._daily_room_url}")
         await self.update_subscriptions(profile_settings=_OPT_IN_SUBSCRIPTION_PROFILE)
 
@@ -367,16 +372,16 @@ class AnamTransportClient:
                 logger.error(f"AnamTransportClient: error leaving Daily: {exc}")
         self._session = None
         self._agent_audio_stream = None
+        self._bot_joined_daily = False
 
     async def _on_joined(self, data: Mapping[str, Any]) -> None:
+        self._bot_joined_daily = True
         await self._on_connected(data)
 
     async def _on_left(self) -> None:
+        # Pipecat 1.13 only invokes on_left from leave(); we call leave() from stop()
+        # after setting _stop_called. Unexpected room loss is reported via Daily on_error.
         logger.debug("AnamTransportClient: Daily client left the room")
-        # Surface unexpected leaves (room ended, kicked, token revoked, ...)
-        # as fatal so the pipeline runner unwinds.
-        if not self._stop_called:
-            await self._on_error(f"Daily room disconnected unexpectedly: {self._daily_room_url}")
 
     async def _on_handle_callback(self, event_name: str, *args: Any, **kwargs: Any) -> None:
         logger.trace(
@@ -730,10 +735,14 @@ class AnamTransport(BaseTransport):
     - ``on_client_connected(transport, participant)`` / ``on_client_disconnected(...)`` —
       a non-Anam participant joined / left.
     - ``on_avatar_connected(transport, participant)`` / ``on_avatar_disconnected(transport, participant, reason)`` —
-      the Anam egress participant joined / left. Disconnect forces a fatal pipeline
-      shutdown since the avatar does not auto-rejoin.
-    - ``on_error(transport, error)`` — unrecoverable transport error; a fatal
-      ``ErrorFrame`` is also pushed into the pipeline.
+      the Anam egress participant joined / left (like LemonSlice's avatar events).
+      On an unexpected avatar leave the transport closes the Anam session and leaves
+      Daily, then raises ``on_error``; it does not cancel the worker.
+    - ``on_error(transport, error)`` — unrecoverable transport error. The
+      transport first closes the Anam session and leaves the Daily room, then
+      pushes an ``ErrorFrame`` that marks it unusable; the
+      ``PipelineWorker`` applies its ``processor_unusable_policy`` (Pipecat 1.13
+      default: ``CONTINUE``).
     """
 
     def __init__(
@@ -834,6 +843,8 @@ class AnamTransport(BaseTransport):
         )
         self._input: AnamInputTransport | None = None
         self._output: AnamOutputTransport | None = None
+        # Several sources (Daily leave, avatar leave, Anam close) can report the same failure.
+        self._unrecoverable_error_reported: bool = False
 
         self._register_event_handler("on_connected")
         self._register_event_handler("on_client_connected")
@@ -877,12 +888,21 @@ class AnamTransport(BaseTransport):
         )
 
     async def _on_fatal_error(self, error: str) -> None:
-        """Propagate an unrecoverable transport error into the pipeline."""
+        """Propagate an unrecoverable transport error into the pipeline. Reported once.
+
+        Releases the Anam session and leaves the Daily room, then marks the
+        transport unusable. This does not cancel the ``PipelineWorker``; the
+        worker acts according to its ``processor_unusable_policy``.
+        """
+        if self._unrecoverable_error_reported:
+            return
+        self._unrecoverable_error_reported = True
+        await self._client.stop()
         await self._call_event_handler("on_error", error)
         if self._input is not None:
-            await self._input.push_error(error_msg=error, fatal=True)
+            await self._input.push_error(error_msg=error, force_treat_as_permanent=True)
         elif self._output is not None:
-            await self._output.push_error(error_msg=error, fatal=True)
+            await self._output.push_error(error_msg=error, force_treat_as_permanent=True)
         else:
             logger.error(f"AnamTransport - fatal error: {error}")
 
@@ -913,8 +933,8 @@ class AnamTransport(BaseTransport):
     ) -> None:
         if self._is_avatar_participant(participant):
             await self._call_event_handler("on_avatar_disconnected", participant, reason)
-            # Fatal: the Anam service does not rejoin a Daily room, so any produced TTS goes nowhere.
             if not self._client.stop_called:
+                # Release SDK + Daily first, then surface one unrecoverable error (deduped).
                 await self._on_fatal_error(
                     f"Anam avatar participant left Daily room unexpectedly: {reason}"
                 )
