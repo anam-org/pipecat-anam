@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- version list -->
 
+## v0.2.0-alpha.8 (2026-10-23)
+
+### Bug Fixes
+
+- Support Pipecat 1.13 and correctly tear down avatar on unrecoverable errors
+  ([`fd680c9`](https://github.com/anam-org/pipecat-anam/commit/fd680c980ed755b725992a6c8a87e7e7a7b96d17))
+
+### Breaking Changes
+
+- Requires Pipecat 1.13+. Avatar failures mark the processor unusable but do not cancel the
+  PipelineWorker by default (CONTINUE); use processor_unusable_policy or on_error to end the call.
+
+
 ## v0.2.0-alpha.7 (2026-10-02)
 
 ### Bug Fixes
