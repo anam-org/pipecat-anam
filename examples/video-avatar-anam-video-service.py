@@ -18,7 +18,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -46,6 +46,19 @@ missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
 if missing:
     raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
+# Replaces deprecated TransportParams.video_out_bitrate for Daily camera publish.
+_CAMERA_OUT_SEND_SETTINGS_5_MBPS = {
+    "maxQuality": "high",
+    "startBitrate": 5_000_000,
+    "encodings": {
+        "high": {
+            "maxBitrate": 5_000_000,
+            "maxFramerate": 25,
+            "scaleResolutionDownBy": 1,
+        },
+    },
+}
+
 transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
@@ -54,6 +67,7 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=720,
         video_out_height=480,
+        camera_out_send_settings=_CAMERA_OUT_SEND_SETTINGS_5_MBPS,
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
@@ -153,9 +167,6 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             enable_usage_metrics=True,
         ),
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
-        # The avatar is required for output. Cancel the pipeline when the Anam session
-        # cannot start.
-        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
     )
 
     @transport.event_handler("on_client_connected")

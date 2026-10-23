@@ -48,7 +48,7 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMRunFrame, OutputTransportMessageUrgentFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContext,
     LLMContextAggregatorPair,
@@ -138,9 +138,6 @@ async def main():
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        # The avatar is required for output. Cancel the pipeline when it becomes unusable
-        # (for example, the avatar leaves the room or the session fails to start).
-        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
     )
 
     @transport.event_handler("on_client_connected")

@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from anam import PersonaConfig
+from conftest import make_client
 from pipecat.frames.frames import OutputTransportMessageUrgentFrame
 from pipecat.transports.base_transport import TransportParams
 
@@ -26,33 +27,7 @@ from pipecat_anam.transport import (
     AnamOutputTransport,
     AnamParams,
     AnamTransport,
-    AnamTransportClient,
 )
-
-
-def make_client() -> AnamTransportClient:
-    return AnamTransportClient(
-        bot_name="test-bot",
-        daily_room_url="https://example.daily.co/test",
-        daily_bot_token=None,
-        daily_avatar_token=None,
-        daily_avatar_user_name=None,
-        api_key="test-api-key",
-        persona_config=PersonaConfig(),
-        api_base_url="https://api.anam.ai",
-        api_version="v1",
-        ice_servers=None,
-        video_width=None,
-        video_height=None,
-        show_ai_avatar_disclosure=None,
-        region=None,
-        region_policy=None,
-        params=AnamParams(),
-        on_connected=AsyncMock(),
-        on_participant_connected=AsyncMock(),
-        on_participant_disconnected=AsyncMock(),
-        on_error=AsyncMock(),
-    )
 
 
 @pytest.mark.asyncio

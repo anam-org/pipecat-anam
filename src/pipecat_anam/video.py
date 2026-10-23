@@ -147,6 +147,8 @@ class AnamVideoService(AIService):
         self._transport_ready = False
         self._session_ready_event = asyncio.Event()
         self._audio_out_sample_rate: int | None = None
+        # Several sources (connect, frame consumers, connection close) can report the same failure.
+        self._unrecoverable_error_reported: bool = False
 
     async def setup(self, setup: FrameProcessorSetup):
         """Set up the Anam video service with necessary configuration.
@@ -275,11 +277,7 @@ class AnamVideoService(AIService):
                 error_msg = "Anam session connection timed out."
             else:
                 error_msg = f"Error connecting to Anam: {e}"
-            logger.error(error_msg)
-            await self._close_session()
-            # The service cannot render without a session, so mark it unusable and let the
-            # PipelineWorker's processor_unusable_policy decide what happens next.
-            await self.push_error(error_msg, exception=e, force_treat_as_permanent=True)
+            await self._report_unrecoverable_error(error_msg, exception=e)
             return
 
     async def stop(self, frame: EndFrame):
@@ -393,9 +391,9 @@ class AnamVideoService(AIService):
 
                 await self.push_frame(frame)
         except Exception as e:
-            error_msg = f"Anam error consuming video frames: {e}"
-            logger.error(error_msg)
-            await self.push_error_frame(ErrorFrame(error=error_msg))
+            await self._report_unrecoverable_error(
+                f"Anam error consuming video frames: {e}", exception=e
+            )
 
     async def _consume_audio_frames(self) -> None:
         """Consume audio frames from Anam iterator and push them downstream.
@@ -421,9 +419,9 @@ class AnamVideoService(AIService):
                     await self.push_frame(frame)
 
         except Exception as e:
-            error_msg = f"Anam error consuming audio frames: {e}"
-            logger.error(error_msg)
-            await self.push_error_frame(ErrorFrame(error=error_msg))
+            await self._report_unrecoverable_error(
+                f"Anam error consuming audio frames: {e}", exception=e
+            )
 
     async def _cancel_video_task(self):
         """Cancel the video frame consumption task if it exists."""
@@ -461,9 +459,35 @@ class AnamVideoService(AIService):
             error_message = f"Anam connection closed: {code}"
             if reason:
                 error_message += f" - {reason}"
-            logger.error(f"{error_message}")
-            await self._cleanup()
-            await self.push_error_frame(ErrorFrame(error=error_message))
+            await self._report_unrecoverable_error(error_message)
+
+    async def _report_unrecoverable_error(
+        self, error_msg: str, exception: Exception | None = None
+    ) -> None:
+        """Release the Anam session and mark the service unusable. Reported once.
+
+        The service cannot render without a session, so the error is permanent and the
+        PipelineWorker's processor_unusable_policy decides what happens next. Callers may
+        run inside the connect, video, or audio task, so that task is left to finish on
+        its own instead of being cancelled from within.
+        """
+        if self._unrecoverable_error_reported:
+            return
+        self._unrecoverable_error_reported = True
+        logger.error(error_msg)
+
+        self._detach_client_listeners()
+        await self._close_session()
+        self._agent_audio_stream = None
+        current = asyncio.current_task()
+        if self._connect_task is not current:
+            await self._cancel_connect_task()
+        if self._video_task is not current:
+            await self._cancel_video_task()
+        if self._audio_task is not current:
+            await self._cancel_audio_task()
+
+        await self.push_error(error_msg, exception=exception, force_treat_as_permanent=True)
 
     async def _handle_interruption(self) -> None:
         """Handle interruption events by signaling the session to interrupt.

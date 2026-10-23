@@ -31,7 +31,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import Frame, LLMRunFrame, OutputImageRawFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -174,6 +174,18 @@ class CenterAspectCropFilter(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+_CAMERA_OUT_SEND_SETTINGS_5_MBPS = {
+    "maxQuality": "low",
+    "startBitrate": 5_000_000,
+    "encodings": {
+        "low": {
+            "maxBitrate": 5_000_000,
+            "maxFramerate": 30,
+            "scaleResolutionDownBy": 1,
+        }
+    },
+}
+
 transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
@@ -182,6 +194,7 @@ transport_params = {
         video_out_is_live=True,
         video_out_width=VIDEO_OUT_SIZE[0],
         video_out_height=VIDEO_OUT_SIZE[1],
+        camera_out_send_settings=_CAMERA_OUT_SEND_SETTINGS_5_MBPS,
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
@@ -264,9 +277,6 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
         idle_timeout_secs=runner_args.pipeline_idle_timeout_secs,
-        # The avatar is required for output. Cancel the pipeline when the Anam session
-        # cannot start.
-        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
     )
 
     @transport.event_handler("on_client_connected")
