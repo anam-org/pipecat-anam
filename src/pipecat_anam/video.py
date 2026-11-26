@@ -586,9 +586,8 @@ class AnamVideoService(AIService):
                             if should_measure_ttfb:
                                 await self.start_ttfb_metrics()
                                 should_measure_ttfb = False
-                    elif isinstance(frame, TTSStoppedFrame):
-                        if ctx == active_tts_context_id:
-                            waiting_for_end_sequence = True
+                    elif isinstance(frame, TTSStoppedFrame) and ctx == active_tts_context_id:
+                        waiting_for_end_sequence = True
                 finally:
                     self._queue.task_done()
 
