@@ -25,9 +25,16 @@ from conftest import (
     make_client,
 )
 from loguru import logger
-from pipecat.frames.frames import Frame, StartFrame, TTSAudioRawFrame, TTSStartedFrame
+from pipecat.frames.frames import (
+    Frame,
+    InterruptionFrame,
+    StartFrame,
+    TTSAudioRawFrame,
+    TTSStartedFrame,
+)
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.processors.filters.identity_filter import IdentityFilter
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_transport import TransportParams
 from real_sdk import FakeSocket, end_remotely, fake_signalling_sockets, patch_sdk_network
 
@@ -538,8 +545,10 @@ async def test_real_sdk_video_interruption_while_session_is_ending() -> None:
             await asyncio.wait_for(_until_awaited(signalling.close), 5)
             assert real.sdk_session.is_active
 
-            await asyncio.wait_for(real.service._handle_interruption(), 1)
+            with _error_logs() as errors:
+                await asyncio.wait_for(real.service._handle_interruption(), 1)
 
+            assert errors == []
             assert real.harness.errors == []
             assert real.service._send_task is not None and not real.service._send_task.done()
         finally:
@@ -559,6 +568,28 @@ async def test_real_sdk_video_interrupt_timeout_on_a_live_session_is_an_error() 
         [error] = errors
         assert "Anam interrupt failed: [session_error] Data channel did not open in time" in error
         assert real.service._send_task is not None and not real.service._send_task.done()
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_forwards_the_interruption_after_a_failed_interrupt() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+        _streaming_of(real.sdk_session).wait_for_data_channel = AsyncMock(return_value=False)
+        forwarded = asyncio.Event()
+        push_frame = real.service.push_frame
+
+        async def spy(frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM) -> None:
+            await push_frame(frame, direction)
+            if isinstance(frame, InterruptionFrame) and direction is FrameDirection.DOWNSTREAM:
+                forwarded.set()
+
+        real.service.push_frame = spy  # type: ignore[method-assign]
+        with _error_logs() as errors:
+            await real.harness.worker.queue_frames([InterruptionFrame()])
+            await asyncio.wait_for(forwarded.wait(), 5)
+
+        assert any("Data channel did not open in time" in error for error in errors)
+        assert real.harness.errors == []
 
 
 async def _until_awaited(mock: AsyncMock) -> None:
