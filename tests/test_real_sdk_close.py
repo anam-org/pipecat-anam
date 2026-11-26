@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from anam import AnamClient, AnamEvent, Session
+from anam import AgentAudioInputStream, AnamClient, AnamEvent, Session
 from anam._signalling import SignallingClient
 from anam.types import ConnectionClosedCode
 from conftest import (
@@ -224,9 +224,7 @@ async def _drop_and_reconnect(sockets: list[FakeSocket], session: Session) -> Fa
     return sockets[1]
 
 
-@pytest.mark.asyncio
-async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None:
-    client = make_client()
+def _output_harness(client: AnamTransportClient) -> tuple[_Harness, MagicMock]:
     daily = MagicMock(
         leave=AsyncMock(), cleanup=AsyncMock(), send_message=AsyncMock(return_value=None)
     )
@@ -236,6 +234,19 @@ async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None
         ProcessorUnusablePolicy.CONTINUE,
         cancel_timeout_secs=0.5,
     )
+    return harness, daily
+
+
+def _spy_on_audio_chunks(stream: AgentAudioInputStream) -> AsyncMock:
+    spy = AsyncMock(wraps=stream.send_audio_chunk)
+    stream.send_audio_chunk = spy
+    return spy
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None:
+    client = make_client()
+    harness, daily = _output_harness(client)
     with fake_signalling_sockets() as sockets:
         with patch_sdk_network(open_signalling=True):
             await asyncio.wait_for(client._anam_connect(), 5)
@@ -258,6 +269,29 @@ async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None
         finally:
             if harness.is_running():
                 await harness.cancel()
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_transport_tts_after_normal_end_is_dropped() -> None:
+    client, _, sdk_client = await _connected_client()
+    harness, _ = _output_harness(client)
+    await harness.start()
+    try:
+        client._create_agent_audio_stream()
+        stream = client.agent_audio_stream
+        assert stream is not None
+        send_audio_chunk = _spy_on_audio_chunks(stream)
+        await asyncio.wait_for(end_remotely(sdk_client, ConnectionClosedCode.NORMAL, None), 5)
+
+        await harness.worker.queue_frames(_tts_frames())
+        await _wait_until(lambda: send_audio_chunk.await_count == 1, 5)
+        await _settle()
+
+        client._on_error.assert_not_awaited()
+        assert harness.errors == []
+    finally:
+        if harness.is_running():
+            await harness.cancel()
 
 
 @dataclass
@@ -471,3 +505,19 @@ async def test_real_sdk_video_recovers_a_dropped_signalling_socket() -> None:
             assert real.sdk_session.is_active
             assert real.service._anam_session is real.sdk_session
             assert real.harness.errors == []
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_tts_after_normal_end_is_dropped() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+        stream = real.service._agent_audio_stream
+        assert stream is not None
+        send_audio_chunk = _spy_on_audio_chunks(stream)
+        await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)
+
+        await real.harness.worker.queue_frames(_tts_frames())
+        await _wait_until(lambda: send_audio_chunk.await_count == 1, 5)
+        await _settle()
+
+        assert real.harness.errors == []
