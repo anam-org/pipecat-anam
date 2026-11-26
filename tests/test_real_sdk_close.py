@@ -29,7 +29,7 @@ from conftest import (
     _make_video_service,
     make_client,
 )
-from pipecat.frames.frames import StartFrame
+from pipecat.frames.frames import StartFrame, TTSAudioRawFrame, TTSStartedFrame
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.processors.filters.identity_filter import IdentityFilter
 from real_sdk import end_remotely, patch_sdk_network
@@ -367,3 +367,41 @@ async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
         await asyncio.wait_for(end_task, 5)
 
         await asyncio.wait_for(real.service._handle_interruption(), 5)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
+    """SESSION_READY can arrive while connect_async() is still running; it fires only once."""
+    async with _real_sdk_service(ready_during_connect=True) as real:
+        service = real.service
+        assert service._session_ready_event.is_set()
+        assert service._send_task is not None and not service._send_task.done()
+        assert real.harness.errors == []
+
+        stream = service._agent_audio_stream
+        assert stream is not None
+        sent = asyncio.Event()
+        stream.send_audio_chunk = AsyncMock(side_effect=lambda _audio: sent.set())
+        await real.harness.worker.queue_frames(
+            [
+                TTSStartedFrame(context_id="c1"),
+                TTSAudioRawFrame(
+                    audio=b"\0\0" * 160, sample_rate=24000, num_channels=1, context_id="c1"
+                ),
+            ]
+        )
+        await asyncio.wait_for(sent.wait(), 5)
+        stream.send_audio_chunk.assert_awaited_once_with(b"\0\0" * 160)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_interruption_after_normal_end() -> None:
+    """After a normal remote end the service keeps the ended session; interrupting must not
+    wait for its data channel (the SDK would wait 10 s and raise)."""
+    async with _real_sdk_service() as real:
+        await _ready(real)
+        await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)
+
+        await asyncio.wait_for(real.service._handle_interruption(), 1)
+
+        assert real.harness.errors == []
