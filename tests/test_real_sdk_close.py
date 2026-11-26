@@ -13,17 +13,28 @@ deadlock fails the test instead of hanging the suite.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+import contextlib
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from anam import AnamClient, AnamEvent, Session
 from anam.types import ConnectionClosedCode
-from conftest import _Harness, _make_transport, make_client
+from conftest import (
+    _blocking_frames,
+    _Harness,
+    _make_transport,
+    _make_video_service,
+    make_client,
+)
 from pipecat.frames.frames import StartFrame
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.processors.filters.identity_filter import IdentityFilter
 from real_sdk import end_remotely, patch_sdk_network
 
+from pipecat_anam import AnamVideoService
 from pipecat_anam.transport import AnamTransportClient
 
 
@@ -205,3 +216,154 @@ async def test_real_sdk_agent_audio_after_end_is_dropped() -> None:
 
     await asyncio.wait_for(stream.send_audio_chunk(b"\x00\x00" * 480), 5)
     await asyncio.wait_for(stream.end_sequence(), 5)
+
+
+# --- AnamVideoService -----------------------------------------------------------------
+
+
+@dataclass
+class _Consumer:
+    started: asyncio.Event = field(default_factory=asyncio.Event)
+    cancelled: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def frames(self) -> Callable[[Session], AsyncIterator[Any]]:
+        def factory(_session: Session) -> AsyncIterator[Any]:
+            self.started.set()
+            return _blocking_frames(self.cancelled)
+
+        return factory
+
+
+@dataclass
+class _RealSdkService:
+    service: AnamVideoService
+    harness: _Harness
+    sdk_client: AnamClient
+    sdk_session: Session
+    video: _Consumer
+    audio: _Consumer
+    tasks: list[asyncio.Task] = field(default_factory=list)
+
+    def listeners_attached(self) -> bool:
+        callbacks = self.sdk_client._event_callbacks
+        return (
+            self.service._on_session_ready in callbacks[AnamEvent.SESSION_READY]
+            or self.service._on_connection_closed in callbacks[AnamEvent.CONNECTION_CLOSED]
+        )
+
+
+@contextlib.asynccontextmanager
+async def _real_sdk_service(**network: bool) -> AsyncIterator[_RealSdkService]:
+    """Start an AnamVideoService through its own connect path on the real SDK.
+
+    The pipeline runs under CONTINUE, so whatever the test observes was done by the
+    service and not by the worker tearing it down. Media iterators block forever.
+    """
+    video, audio = _Consumer(), _Consumer()
+    service = _make_video_service()
+    harness = _Harness(service, ProcessorUnusablePolicy.CONTINUE)
+    # A test that calls service.cleanup() directly also stops the service's frame tasks,
+    # so the worker's CancelFrame never reaches the end of the pipeline at teardown.
+    harness.worker._cancel_timeout_secs = 0.5
+    with (
+        patch_sdk_network(**network),
+        patch.object(Session, "video_frames", video.frames()),
+        patch.object(Session, "audio_frames", audio.frames()),
+    ):
+        await harness.start()
+        await asyncio.wait_for(video.started.wait(), 5)
+        await asyncio.wait_for(audio.started.wait(), 5)
+        sdk_client = service._client
+        sdk_session = service._anam_session
+        assert sdk_client is not None
+        assert isinstance(sdk_session, Session)
+        real = _RealSdkService(service, harness, sdk_client, sdk_session, video, audio)
+        assert service._video_task is not None and service._audio_task is not None
+        real.tasks = [service._video_task, service._audio_task]
+        try:
+            yield real
+        finally:
+            if harness.is_running():
+                await harness.cancel()
+
+
+async def _ready(real: _RealSdkService) -> None:
+    await asyncio.wait_for(real.sdk_client._handle_session_ready(), 5)
+    assert real.service._session_ready_event.is_set()
+
+
+async def _settle() -> None:
+    await asyncio.sleep(0.2)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_signalling_failure_reports_one_error() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+
+        end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+        await asyncio.wait_for(end_task, 5)
+        await real.harness.wait_errored()
+        await _settle()
+
+        [error] = real.harness.errors
+        assert "Anam connection closed: signalling_failure" in error.error
+        assert not real.listeners_attached()
+        assert all(task.done() for task in real.tasks)
+        assert real.video.cancelled.is_set() and real.audio.cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_normal_remote_end_is_not_an_error() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+
+        await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)
+        await _settle()
+
+        assert real.harness.errors == []
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_cleanup_completes() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+
+        await asyncio.wait_for(real.service.cleanup(), 5)
+        await _settle()
+
+        assert real.harness.errors == []
+        assert real.sdk_session.is_active is False
+
+
+@pytest.mark.parametrize("order", ["remote_first", "local_first"])
+@pytest.mark.asyncio
+async def test_real_sdk_video_cleanup_races_remote_end(order: str) -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+
+        if order == "remote_first":
+            end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+            cleanup_task = asyncio.create_task(real.service.cleanup())
+        else:
+            cleanup_task = asyncio.create_task(real.service.cleanup())
+            await _until_closed_locally(real.sdk_client)
+            end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+        await asyncio.wait_for(asyncio.gather(cleanup_task, end_task), 5)
+        await _settle()
+
+        if order == "remote_first":
+            [error] = real.harness.errors
+            assert "Anam connection closed: signalling_failure" in error.error
+        else:
+            assert real.harness.errors == []
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+        end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+        await asyncio.wait_for(end_task, 5)
+
+        await asyncio.wait_for(real.service._handle_interruption(), 5)
