@@ -23,6 +23,7 @@ from conftest import (
     _wait_until,
     make_client,
 )
+from loguru import logger
 from pipecat.frames.frames import Frame, StartFrame, TTSAudioRawFrame, TTSStartedFrame
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.processors.filters.identity_filter import IdentityFilter
@@ -292,6 +293,45 @@ async def test_real_sdk_transport_tts_after_normal_end_is_dropped() -> None:
     finally:
         if harness.is_running():
             await harness.cancel()
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_transport_interruption_while_session_is_ending() -> None:
+    client, sdk_session, sdk_client = await _connected_client()
+    client._audio_out_sample_rate = 24000
+    client._create_agent_audio_stream()
+    output = AnamOutputTransport(client, TransportParams())
+    signalling = _signalling_of(sdk_session)
+    release_teardown = asyncio.Event()
+    signalling.close = AsyncMock(side_effect=release_teardown.wait)
+    errors: list[str] = []
+    sink = logger.add(lambda message: errors.append(str(message)), level="ERROR")
+
+    end_task = end_remotely(sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+    try:
+        await asyncio.wait_for(_until_awaited(signalling.close), 5)
+        assert client.session is sdk_session and sdk_session.is_active
+
+        await asyncio.wait_for(output._on_interruption(), 1)
+
+        assert errors == []
+    finally:
+        logger.remove(sink)
+        release_teardown.set()
+        await asyncio.wait_for(end_task, 5)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_transport_interruption_after_normal_end_skips_interrupt() -> None:
+    client, sdk_session, sdk_client = await _connected_client()
+    output = AnamOutputTransport(client, TransportParams())
+    await asyncio.wait_for(end_remotely(sdk_client, ConnectionClosedCode.NORMAL, None), 5)
+
+    with patch.object(Session, "interrupt", autospec=True) as interrupt:
+        await asyncio.wait_for(output._on_interruption(), 1)
+
+    interrupt.assert_not_called()
+    assert sdk_session.is_active is False
 
 
 @dataclass
