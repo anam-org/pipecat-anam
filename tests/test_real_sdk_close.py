@@ -13,21 +13,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from anam import AnamClient, AnamEvent, Session
+from anam._signalling import SignallingClient
 from anam.types import ConnectionClosedCode
 from conftest import (
     _blocking_frames,
     _Harness,
     _make_transport,
     _make_video_service,
+    _wait_until,
     make_client,
 )
-from pipecat.frames.frames import StartFrame, TTSAudioRawFrame, TTSStartedFrame
+from pipecat.frames.frames import Frame, StartFrame, TTSAudioRawFrame, TTSStartedFrame
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.processors.filters.identity_filter import IdentityFilter
-from real_sdk import end_remotely, patch_sdk_network
+from pipecat.transports.base_transport import TransportParams
+from real_sdk import FakeSocket, end_remotely, fake_signalling_sockets, patch_sdk_network
 
 from pipecat_anam import AnamVideoService
-from pipecat_anam.transport import AnamTransportClient
+from pipecat_anam.transport import AnamOutputTransport, AnamTransportClient
 
 
 async def _connected_client(
@@ -193,6 +196,67 @@ async def test_real_sdk_agent_audio_after_end_is_dropped() -> None:
     await asyncio.wait_for(stream.end_sequence(), 5)
 
 
+def _tts_frames(context_id: str = "c1") -> list[Frame]:
+    return [
+        TTSStartedFrame(context_id=context_id),
+        TTSAudioRawFrame(
+            audio=b"\0\0" * 160, sample_rate=24000, num_channels=1, context_id=context_id
+        ),
+    ]
+
+
+def _signalling_of(session: Session) -> SignallingClient:
+    streaming_client = session._client._streaming_client
+    assert streaming_client is not None
+    signalling = streaming_client._signalling_client
+    assert signalling is not None
+    return signalling
+
+
+async def _drop_and_reconnect(sockets: list[FakeSocket], session: Session) -> FakeSocket:
+    signalling = _signalling_of(session)
+    [first] = sockets
+    first.drop()
+    await _wait_until(lambda: len(sockets) == 2 and signalling._ws is sockets[1], 5)
+    return sockets[1]
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None:
+    client = make_client()
+    daily = MagicMock(
+        leave=AsyncMock(), cleanup=AsyncMock(), send_message=AsyncMock(return_value=None)
+    )
+    client._daily_client = daily
+    harness = _Harness(
+        AnamOutputTransport(client, TransportParams()),
+        ProcessorUnusablePolicy.CONTINUE,
+        cancel_timeout_secs=0.5,
+    )
+    with fake_signalling_sockets() as sockets:
+        with patch_sdk_network(open_signalling=True):
+            await asyncio.wait_for(client._anam_connect(), 5)
+        session = client.session
+        assert session is not None
+        await harness.start()
+        try:
+            client._create_agent_audio_stream()
+
+            new_socket = await _drop_and_reconnect(sockets, session)
+            await harness.worker.queue_frames(_tts_frames())
+            await _wait_until(lambda: bool(new_socket.sent_actions("agentaudioinput")), 5)
+
+            assert sockets[0].sent_actions("agentaudioinput") == []
+            assert session.is_active
+            assert client.session is session
+            client._on_error.assert_not_awaited()
+            daily.leave.assert_not_awaited()
+            assert harness.errors == []
+        finally:
+            if harness.is_running():
+                await harness.cancel()
+
+
 @dataclass
 class _Consumer:
     started: asyncio.Event = field(default_factory=asyncio.Event)
@@ -337,12 +401,9 @@ async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
 async def test_real_sdk_video_interruption_while_session_is_ending() -> None:
     async with _real_sdk_service() as real:
         await _ready(real)
-        streaming_client = real.sdk_client._streaming_client
-        assert streaming_client is not None
-        signalling = streaming_client._signalling_client
-        assert signalling is not None
+        signalling = _signalling_of(real.sdk_session)
         release_teardown = asyncio.Event()
-        signalling.close = AsyncMock(side_effect=release_teardown.wait)  # type: ignore[method-assign]
+        signalling.close = AsyncMock(side_effect=release_teardown.wait)
 
         end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
         try:
@@ -375,14 +436,7 @@ async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
         assert stream is not None
         sent = asyncio.Event()
         stream.send_audio_chunk = AsyncMock(side_effect=lambda _audio: sent.set())
-        await real.harness.worker.queue_frames(
-            [
-                TTSStartedFrame(context_id="c1"),
-                TTSAudioRawFrame(
-                    audio=b"\0\0" * 160, sample_rate=24000, num_channels=1, context_id="c1"
-                ),
-            ]
-        )
+        await real.harness.worker.queue_frames(_tts_frames())
         await asyncio.wait_for(sent.wait(), 5)
         stream.send_audio_chunk.assert_awaited_once_with(b"\0\0" * 160)
 
@@ -396,3 +450,19 @@ async def test_real_sdk_video_interruption_after_normal_end() -> None:
         await asyncio.wait_for(real.service._handle_interruption(), 1)
 
         assert real.harness.errors == []
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_recovers_a_dropped_signalling_socket() -> None:
+    with fake_signalling_sockets() as sockets:
+        async with _real_sdk_service(open_signalling=True) as real:
+            await _ready(real)
+
+            new_socket = await _drop_and_reconnect(sockets, real.sdk_session)
+            await real.harness.worker.queue_frames(_tts_frames())
+            await _wait_until(lambda: bool(new_socket.sent_actions("agentaudioinput")), 5)
+
+            assert sockets[0].sent_actions("agentaudioinput") == []
+            assert real.sdk_session.is_active
+            assert real.service._anam_session is real.sdk_session
+            assert real.harness.errors == []
