@@ -32,7 +32,7 @@ from anam import (
     EgressOptions,
     PersonaConfig,
     Session,
-    SessionError,
+    SessionEndedError,
     SessionOptions,
 )
 from daily.daily import AudioData
@@ -679,7 +679,7 @@ class AnamOutputTransport(BaseOutputTransport):
         if session is not None and session.is_active:
             try:
                 await session.interrupt()
-            except SessionError as exc:
+            except SessionEndedError as exc:
                 # is_active stays True until the SDK finishes tearing an ended session down.
                 logger.debug(f"AnamOutputTransport: interrupt skipped, session is ending: {exc}")
             except Exception as exc:

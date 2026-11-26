@@ -24,7 +24,7 @@ from anam import (
     ConnectionClosedCode,
     PersonaConfig,
     Session,
-    SessionError,
+    SessionEndedError,
     SessionOptions,
 )
 from av.audio.resampler import AudioResampler
@@ -508,9 +508,12 @@ class AnamVideoService(AIService):
                 if self._anam_session is not None and self._anam_session.is_active:
                     try:
                         await self._anam_session.interrupt()
-                    except SessionError as e:
+                    except SessionEndedError as e:
                         # is_active stays True until the SDK finishes tearing an ended session down.
                         logger.debug(f"Anam interrupt skipped, session is ending: {e}")
+                    except Exception as e:
+                        # Raising would skip the send-task reset and drop the InterruptionFrame.
+                        logger.error(f"Anam interrupt failed: {e}")
 
                 await self._cancel_send_task()
                 if self._agent_audio_stream:

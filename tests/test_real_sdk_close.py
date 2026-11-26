@@ -6,7 +6,7 @@
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from anam import AgentAudioInputStream, AnamClient, AnamEvent, Session
 from anam._signalling import SignallingClient
+from anam._streaming import StreamingClient
 from anam.types import ConnectionClosedCode
 from conftest import (
     _blocking_frames,
@@ -209,10 +210,24 @@ def _tts_frames(context_id: str = "c1") -> list[Frame]:
     ]
 
 
-def _signalling_of(session: Session) -> SignallingClient:
+@contextlib.contextmanager
+def _error_logs() -> Iterator[list[str]]:
+    errors: list[str] = []
+    sink = logger.add(lambda message: errors.append(str(message)), level="ERROR")
+    try:
+        yield errors
+    finally:
+        logger.remove(sink)
+
+
+def _streaming_of(session: Session) -> StreamingClient:
     streaming_client = session._client._streaming_client
     assert streaming_client is not None
-    signalling = streaming_client._signalling_client
+    return streaming_client
+
+
+def _signalling_of(session: Session) -> SignallingClient:
+    signalling = _streaming_of(session)._signalling_client
     assert signalling is not None
     return signalling
 
@@ -304,21 +319,32 @@ async def test_real_sdk_transport_interruption_while_session_is_ending() -> None
     signalling = _signalling_of(sdk_session)
     release_teardown = asyncio.Event()
     signalling.close = AsyncMock(side_effect=release_teardown.wait)
-    errors: list[str] = []
-    sink = logger.add(lambda message: errors.append(str(message)), level="ERROR")
 
     end_task = end_remotely(sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
     try:
         await asyncio.wait_for(_until_awaited(signalling.close), 5)
         assert client.session is sdk_session and sdk_session.is_active
 
-        await asyncio.wait_for(output._on_interruption(), 1)
+        with _error_logs() as errors:
+            await asyncio.wait_for(output._on_interruption(), 1)
 
         assert errors == []
     finally:
-        logger.remove(sink)
         release_teardown.set()
         await asyncio.wait_for(end_task, 5)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_transport_interrupt_timeout_on_a_live_session_is_an_error() -> None:
+    client, sdk_session, _ = await _connected_client()
+    output = AnamOutputTransport(client, TransportParams())
+    _streaming_of(sdk_session).wait_for_data_channel = AsyncMock(return_value=False)
+
+    with _error_logs() as errors:
+        await asyncio.wait_for(output._on_interruption(), 1)
+
+    [error] = errors
+    assert "interrupt failed: [session_error] Data channel did not open in time" in error
 
 
 @pytest.mark.asyncio
@@ -496,6 +522,20 @@ async def test_real_sdk_video_interruption_while_session_is_ending() -> None:
         finally:
             release_teardown.set()
             await asyncio.wait_for(end_task, 5)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_video_interrupt_timeout_on_a_live_session_is_an_error() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+        _streaming_of(real.sdk_session).wait_for_data_channel = AsyncMock(return_value=False)
+
+        with _error_logs() as errors:
+            await asyncio.wait_for(real.service._handle_interruption(), 1)
+
+        [error] = errors
+        assert "Anam interrupt failed: [session_error] Data channel did not open in time" in error
+        assert real.service._send_task is not None and not real.service._send_task.done()
 
 
 async def _until_awaited(mock: AsyncMock) -> None:
