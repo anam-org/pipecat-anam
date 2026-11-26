@@ -4,14 +4,6 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Run the real anam SDK objects with only the network patched out.
-
-``AnamClient``, ``Session``, ``StreamingClient`` and ``SignallingClient`` are the real
-classes. Only the API session start and the signalling/WebRTC connect are replaced, so
-the SDK's own end path (``_terminate`` → teardown → ``CONNECTION_CLOSED`` listeners)
-runs against the real pipecat-anam listeners. No socket or peer connection is opened.
-"""
-
 import asyncio
 import contextlib
 from collections.abc import Iterator
@@ -44,15 +36,6 @@ def patch_sdk_network(
     end_during_connect: bool = False,
     ready_during_connect: bool = False,
 ) -> Iterator[None]:
-    """Patch the API session start and ``StreamingClient.connect``.
-
-    The fake ``connect`` builds the real ``SignallingClient`` exactly as the SDK does but
-    never opens it, then marks the streaming client started.
-
-    ``end_during_connect`` ends the session inside ``connect`` the way the SDK does when
-    the signalling fails during startup: it closes and raises ``SessionError``.
-    ``ready_during_connect`` delivers ``SESSION_READY`` before ``connect`` returns.
-    """
     info = session_info or make_session_info()
 
     async def start_session(self: CoreApiClient, *args: Any, **kwargs: Any) -> SessionInfo:
@@ -87,7 +70,6 @@ def patch_sdk_network(
 def end_remotely(
     client: AnamClient, code: ConnectionClosedCode, reason: str | None
 ) -> asyncio.Task[None]:
-    """End the session through the SDK's own end path and return its end task."""
     streaming_client = client._streaming_client
     assert streaming_client is not None
     streaming_client._terminate(code, reason)

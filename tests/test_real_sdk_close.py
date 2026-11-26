@@ -4,14 +4,6 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-"""Close paths of ``AnamTransport`` and ``AnamVideoService`` on the real anam SDK.
-
-anam 0.13 makes ``Session.close()`` wait for the ``CONNECTION_CLOSED`` listeners, so a
-listener that waits for a task calling ``close()`` deadlocks. These tests run the real
-SDK end path (see ``real_sdk``) and bound every SDK end or close with a timeout, so a
-deadlock fails the test instead of hanging the suite.
-"""
-
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Callable
@@ -50,16 +42,8 @@ async def _connected_client(
     return client, sdk_session, sdk_session._client
 
 
-# --- Negative control -----------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_real_sdk_harness_detects_listener_waiting_on_closer() -> None:
-    """A listener that awaits a task calling ``close()`` hangs the SDK end path.
-
-    Proves the harness reaches the SDK's listener wait, so the other tests would catch
-    such a deadlock in pipecat-anam.
-    """
     _, sdk_session, sdk_client = await _connected_client()
     close_now = asyncio.Event()
 
@@ -78,7 +62,6 @@ async def test_real_sdk_harness_detects_listener_waiting_on_closer() -> None:
     sdk_client.add_listener(AnamEvent.CONNECTION_CLOSED, wait_for_closer)
     end_task = end_remotely(sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
     try:
-        # shield: a plain wait_for would cancel end_task and, through it, the worker.
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(asyncio.shield(end_task), 1)
     finally:
@@ -88,7 +71,6 @@ async def test_real_sdk_harness_detects_listener_waiting_on_closer() -> None:
 
 
 async def _until_closed_locally(sdk_client: AnamClient) -> None:
-    """Wait until the SDK has latched a local close (NORMAL) as the ending cause."""
     streaming_client = sdk_client._streaming_client
     assert streaming_client is not None
 
@@ -98,9 +80,6 @@ async def _until_closed_locally(sdk_client: AnamClient) -> None:
 
     await asyncio.wait_for(poll(), 5)
     assert streaming_client._end == (ConnectionClosedCode.NORMAL, None)
-
-
-# --- AnamTransportClient --------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -140,7 +119,6 @@ async def test_real_sdk_stop_completes() -> None:
 @pytest.mark.parametrize("order", ["remote_first", "local_first"])
 @pytest.mark.asyncio
 async def test_real_sdk_stop_races_remote_end(order: str) -> None:
-    """The SDK keeps the first cause, so it alone decides whether an error is reported."""
     client, _, sdk_client = await _connected_client()
 
     if order == "remote_first":
@@ -163,7 +141,6 @@ async def test_real_sdk_stop_races_remote_end(order: str) -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_end_during_connect_reports_start_failure() -> None:
-    """The SDK sends no CONNECTION_CLOSED for a session that never started."""
     client = make_client()
     client._daily_client = MagicMock(leave=AsyncMock())
     client._daily_start_join = AsyncMock()
@@ -181,7 +158,6 @@ async def test_real_sdk_end_during_connect_reports_start_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_transport_fatal_cascade() -> None:
-    """``on_error`` → ``_on_fatal_error`` → ``client.stop()`` runs inside the SDK listener."""
     transport = _make_transport()
     transport._input = IdentityFilter(name="anam-input")
     client, _, sdk_client = await _connected_client(transport._client)
@@ -204,7 +180,6 @@ async def test_real_sdk_transport_fatal_cascade() -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_agent_audio_after_end_is_dropped() -> None:
-    """A late TTS chunk after the session ended does not raise into the pipeline."""
     client, _, sdk_client = await _connected_client()
     client._audio_out_sample_rate = 24000
     client._create_agent_audio_stream()
@@ -216,9 +191,6 @@ async def test_real_sdk_agent_audio_after_end_is_dropped() -> None:
 
     await asyncio.wait_for(stream.send_audio_chunk(b"\x00\x00" * 480), 5)
     await asyncio.wait_for(stream.end_sequence(), 5)
-
-
-# --- AnamVideoService -----------------------------------------------------------------
 
 
 @dataclass
@@ -254,16 +226,9 @@ class _RealSdkService:
 
 @contextlib.asynccontextmanager
 async def _real_sdk_service(**network: bool) -> AsyncIterator[_RealSdkService]:
-    """Start an AnamVideoService through its own connect path on the real SDK.
-
-    The pipeline runs under CONTINUE, so whatever the test observes was done by the
-    service and not by the worker tearing it down. Media iterators block forever.
-    """
     video, audio = _Consumer(), _Consumer()
     service = _make_video_service()
     harness = _Harness(service, ProcessorUnusablePolicy.CONTINUE)
-    # A test that calls service.cleanup() directly also stops the service's frame tasks,
-    # so the worker's CancelFrame never reaches the end of the pipeline at teardown.
     harness.worker._cancel_timeout_secs = 0.5
     with (
         patch_sdk_network(**network),
@@ -371,7 +336,6 @@ async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
-    """SESSION_READY can arrive while connect_async() is still running; it fires only once."""
     async with _real_sdk_service(ready_during_connect=True) as real:
         service = real.service
         assert service._session_ready_event.is_set()
@@ -396,8 +360,6 @@ async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_video_interruption_after_normal_end() -> None:
-    """After a normal remote end the service keeps the ended session; interrupting must not
-    wait for its data channel (the SDK would wait 10 s and raise)."""
     async with _real_sdk_service() as real:
         await _ready(real)
         await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)

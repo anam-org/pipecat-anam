@@ -145,10 +145,7 @@ class AnamVideoService(AIService):
         self._send_state_lock: asyncio.Lock = asyncio.Lock()
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
-        # Set once the backend is ready and the agent audio stream exists.
         self._session_ready_event = asyncio.Event()
-        # The backend can signal readiness while connect_async() is still running, before
-        # the agent audio stream exists; the SDK delivers that signal only once.
         self._backend_ready: bool = False
         self._audio_out_sample_rate: int | None = None
         # Several sources (connect, frame consumers, connection close) can report the same failure.
@@ -452,7 +449,6 @@ class AnamVideoService(AIService):
         """Handle session ready event (backend service is ready to receive audio)."""
         logger.info(f"Anam session ready (session_id={self._client.session_id})")
         self._backend_ready = True
-        # Waking the send task before the stream exists would end it and drop all TTS.
         if self._agent_audio_stream is not None:
             self._session_ready_event.set()
 
