@@ -360,6 +360,29 @@ async def test_real_sdk_transport_interruption_after_normal_end_skips_interrupt(
     assert sdk_session.is_active is False
 
 
+@pytest.mark.asyncio
+async def test_real_sdk_transport_interruption_during_local_stop_skips_interrupt() -> None:
+    client, sdk_session, _ = await _connected_client()
+    client._daily_client = MagicMock(leave=AsyncMock())
+    output = AnamOutputTransport(client, TransportParams())
+    signalling = _signalling_of(sdk_session)
+    release_teardown = asyncio.Event()
+    signalling.close = AsyncMock(side_effect=release_teardown.wait)
+
+    stop_task = asyncio.create_task(client.stop())
+    try:
+        await asyncio.wait_for(_until_awaited(signalling.close), 5)
+        assert client.session is sdk_session and not sdk_session.is_active
+
+        with patch.object(Session, "interrupt", autospec=True) as interrupt:
+            await asyncio.wait_for(output._on_interruption(), 1)
+
+        interrupt.assert_not_called()
+    finally:
+        release_teardown.set()
+        await asyncio.wait_for(stop_task, 5)
+
+
 @dataclass
 class _Consumer:
     started: asyncio.Event = field(default_factory=asyncio.Event)
@@ -566,8 +589,11 @@ async def test_real_sdk_video_interruption_after_normal_end() -> None:
         await _ready(real)
         await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)
 
-        await asyncio.wait_for(real.service._handle_interruption(), 1)
+        with patch.object(Session, "interrupt", autospec=True) as interrupt:
+            await asyncio.wait_for(real.service._handle_interruption(), 1)
 
+        interrupt.assert_not_called()
+        assert real.service._anam_session is real.sdk_session
         assert real.harness.errors == []
 
 
