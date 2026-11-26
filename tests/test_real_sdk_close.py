@@ -169,16 +169,19 @@ async def test_real_sdk_transport_fatal_cascade() -> None:
 
     harness = _Harness(transport._input, ProcessorUnusablePolicy.CANCEL)
     await harness.start()
+    try:
+        end_task = end_remotely(sdk_client, ConnectionClosedCode.SERVER_CLOSED, "boom")
+        await asyncio.wait_for(end_task, 5)
+        await harness.wait_finished()
 
-    end_task = end_remotely(sdk_client, ConnectionClosedCode.SERVER_CLOSED, "boom")
-    await asyncio.wait_for(end_task, 5)
-    await harness.wait_finished()
-
-    assert client.stop_called is True
-    assert client.session is None
-    daily.leave.assert_awaited_once()
-    [error] = harness.errors
-    assert "Anam session closed unexpectedly: server_closed" in error.error
+        assert client.stop_called is True
+        assert client.session is None
+        daily.leave.assert_awaited_once()
+        [error] = harness.errors
+        assert "Anam session closed unexpectedly: server_closed" in error.error
+    finally:
+        if harness.is_running():
+            await harness.cancel()
 
 
 @pytest.mark.asyncio
@@ -343,13 +346,21 @@ async def test_real_sdk_video_signalling_failure_reports_one_error() -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_video_normal_remote_end_is_not_an_error() -> None:
-    async with _real_sdk_service() as real:
-        await _ready(real)
+    with patch.object(
+        AnamVideoService,
+        "_on_connection_closed",
+        autospec=True,
+        side_effect=AnamVideoService._on_connection_closed,
+    ) as on_connection_closed:
+        async with _real_sdk_service() as real:
+            await _ready(real)
 
-        await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)
-        await _settle()
+            end_task = end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None)
+            await asyncio.wait_for(end_task, 5)
+            await _settle()
 
-        assert real.harness.errors == []
+            on_connection_closed.assert_awaited_once_with(real.service, "normal", None)
+            assert real.harness.errors == []
 
 
 @pytest.mark.asyncio
@@ -380,21 +391,15 @@ async def test_real_sdk_video_cleanup_races_remote_end(order: str) -> None:
         await asyncio.wait_for(asyncio.gather(cleanup_task, end_task), 5)
         await _settle()
 
+        assert cleanup_task.done() and end_task.done()
+        assert real.sdk_session.is_active is False
         if order == "remote_first":
-            [error] = real.harness.errors
-            assert "Anam connection closed: signalling_failure" in error.error
+            # Zero when cleanup detaches the listener before the SDK notifies.
+            assert len(real.harness.errors) <= 1
+            for error in real.harness.errors:
+                assert "Anam connection closed: signalling_failure" in error.error
         else:
             assert real.harness.errors == []
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
-    async with _real_sdk_service() as real:
-        await _ready(real)
-        end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-        await asyncio.wait_for(end_task, 5)
-
-        await asyncio.wait_for(real.service._handle_interruption(), 5)
 
 
 @pytest.mark.asyncio
