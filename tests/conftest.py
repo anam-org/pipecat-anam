@@ -22,7 +22,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from anam import AnamClient, PersonaConfig
 from pipecat.frames.frames import ErrorFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
+from pipecat.pipeline.worker import (
+    CANCEL_TIMEOUT_SECS,
+    PipelineParams,
+    PipelineWorker,
+    ProcessorUnusablePolicy,
+)
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.workers.runner import WorkerRunner
 
@@ -156,11 +161,18 @@ class _FakeSession:
 class _Harness:
     """Run a pipeline in a PipelineWorker and collect the errors it reports."""
 
-    def __init__(self, processor: FrameProcessor, policy: ProcessorUnusablePolicy):
+    def __init__(
+        self,
+        processor: FrameProcessor,
+        policy: ProcessorUnusablePolicy,
+        *,
+        cancel_timeout_secs: float = CANCEL_TIMEOUT_SECS,
+    ):
         self.worker = PipelineWorker(
             Pipeline([processor]),
             params=PipelineParams(),
             processor_unusable_policy=policy,
+            cancel_timeout_secs=cancel_timeout_secs,
         )
         self.runner = WorkerRunner(handle_sigint=False)
         self.errors: list[ErrorFrame] = []

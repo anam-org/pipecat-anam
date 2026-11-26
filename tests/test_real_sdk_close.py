@@ -228,8 +228,7 @@ class _RealSdkService:
 async def _real_sdk_service(**network: bool) -> AsyncIterator[_RealSdkService]:
     video, audio = _Consumer(), _Consumer()
     service = _make_video_service()
-    harness = _Harness(service, ProcessorUnusablePolicy.CONTINUE)
-    harness.worker._cancel_timeout_secs = 0.5
+    harness = _Harness(service, ProcessorUnusablePolicy.CONTINUE, cancel_timeout_secs=0.5)
     with (
         patch_sdk_network(**network),
         patch.object(Session, "video_frames", video.frames()),
@@ -254,7 +253,7 @@ async def _real_sdk_service(**network: bool) -> AsyncIterator[_RealSdkService]:
 
 async def _ready(real: _RealSdkService) -> None:
     await asyncio.wait_for(real.sdk_client._handle_session_ready(), 5)
-    assert real.service._session_ready_event.is_set()
+    assert real.service._send_ready_event.is_set()
 
 
 async def _settle() -> None:
@@ -338,7 +337,7 @@ async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
 async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
     async with _real_sdk_service(ready_during_connect=True) as real:
         service = real.service
-        assert service._session_ready_event.is_set()
+        assert service._send_ready_event.is_set()
         assert service._send_task is not None and not service._send_task.done()
         assert real.harness.errors == []
 
