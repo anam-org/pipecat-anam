@@ -334,6 +334,36 @@ async def test_real_sdk_video_interruption_after_abnormal_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_real_sdk_video_interruption_while_session_is_ending() -> None:
+    async with _real_sdk_service() as real:
+        await _ready(real)
+        streaming_client = real.sdk_client._streaming_client
+        assert streaming_client is not None
+        signalling = streaming_client._signalling_client
+        assert signalling is not None
+        release_teardown = asyncio.Event()
+        signalling.close = AsyncMock(side_effect=release_teardown.wait)  # type: ignore[method-assign]
+
+        end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+        try:
+            await asyncio.wait_for(_until_awaited(signalling.close), 5)
+            assert real.sdk_session.is_active
+
+            await asyncio.wait_for(real.service._handle_interruption(), 1)
+
+            assert real.harness.errors == []
+            assert real.service._send_task is not None and not real.service._send_task.done()
+        finally:
+            release_teardown.set()
+            await asyncio.wait_for(end_task, 5)
+
+
+async def _until_awaited(mock: AsyncMock) -> None:
+    while not mock.await_count:
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
 async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
     async with _real_sdk_service(ready_during_connect=True) as real:
         service = real.service

@@ -24,6 +24,7 @@ from anam import (
     ConnectionClosedCode,
     PersonaConfig,
     Session,
+    SessionError,
     SessionOptions,
 )
 from av.audio.resampler import AudioResampler
@@ -504,9 +505,12 @@ class AnamVideoService(AIService):
         """
         async with self._send_state_lock:
             try:
-                # interrupt() on an ended session waits 10 s for its data channel, then raises.
                 if self._anam_session is not None and self._anam_session.is_active:
-                    await self._anam_session.interrupt()
+                    try:
+                        await self._anam_session.interrupt()
+                    except SessionError as e:
+                        # is_active stays True until the SDK finishes tearing an ended session down.
+                        logger.debug(f"Anam interrupt skipped, session is ending: {e}")
 
                 await self._cancel_send_task()
                 if self._agent_audio_stream:
