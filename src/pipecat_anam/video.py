@@ -24,6 +24,7 @@ from anam import (
     ConnectionClosedCode,
     PersonaConfig,
     Session,
+    SessionEndedError,
     SessionOptions,
 )
 from av.audio.resampler import AudioResampler
@@ -146,6 +147,7 @@ class AnamVideoService(AIService):
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
         self._session_ready_event = asyncio.Event()
+        self._backend_ready: bool = False
         self._audio_out_sample_rate: int | None = None
         # Several sources (connect, frame consumers, connection close) can report the same failure.
         self._unrecoverable_error_reported: bool = False
@@ -223,6 +225,7 @@ class AnamVideoService(AIService):
         await super().start(frame)
 
         self._session_ready_event.clear()
+        self._backend_ready = False
         if self._audio_out_sample_rate is None:
             raise RuntimeError(
                 "AnamVideoService audio_out_sample_rate not set. Call setup() first."
@@ -268,6 +271,7 @@ class AnamVideoService(AIService):
             self._agent_audio_stream = self._anam_session.create_agent_audio_input_stream(
                 audio_config
             )
+            self._release_send_task()
             self._video_task = self.create_task(self._consume_video_frames())
             self._audio_task = self.create_task(self._consume_audio_frames())
             # Watchdog: surface an unrecoverable error if the avatar backend never signals readiness.
@@ -443,8 +447,13 @@ class AnamVideoService(AIService):
 
     async def _on_session_ready(self) -> None:
         """Handle session ready event (backend service is ready to receive audio)."""
-        logger.info(f"Anam session ready (session_id={self._anam_session.session_id})")
-        self._session_ready_event.set()
+        logger.info(f"Anam session ready (session_id={self._client.session_id})")
+        self._backend_ready = True
+        self._release_send_task()
+
+    def _release_send_task(self) -> None:
+        if self._backend_ready and self._agent_audio_stream is not None:
+            self._session_ready_event.set()
 
     async def _on_connection_closed(self, code: str, reason: str | None) -> None:
         """Handle connection closed event.
@@ -496,8 +505,15 @@ class AnamVideoService(AIService):
         """
         async with self._send_state_lock:
             try:
-                if self._anam_session:
-                    await self._anam_session.interrupt()
+                if self._anam_session is not None and self._anam_session.is_active:
+                    try:
+                        await self._anam_session.interrupt()
+                    except SessionEndedError as e:
+                        # is_active stays True until the SDK finishes tearing an ended session down.
+                        logger.debug(f"Anam interrupt skipped, session is ending: {e}")
+                    except Exception as e:
+                        # Raising would skip the send-task reset and drop the InterruptionFrame.
+                        logger.error(f"Anam interrupt failed: {e}")
 
                 await self._cancel_send_task()
                 if self._agent_audio_stream:
@@ -577,9 +593,8 @@ class AnamVideoService(AIService):
                             if should_measure_ttfb:
                                 await self.start_ttfb_metrics()
                                 should_measure_ttfb = False
-                    elif isinstance(frame, TTSStoppedFrame):
-                        if ctx == active_tts_context_id:
-                            waiting_for_end_sequence = True
+                    elif isinstance(frame, TTSStoppedFrame) and ctx == active_tts_context_id:
+                        waiting_for_end_sequence = True
                 finally:
                     self._queue.task_done()
 
