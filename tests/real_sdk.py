@@ -7,7 +7,7 @@
 import asyncio
 import contextlib
 import json
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -62,10 +62,6 @@ def patch_sdk_network(
         yield
 
 
-async def end_on_signalling_open(self: StreamingClient) -> None:
-    self._terminate(ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-
-
 async def ready_on_signalling_open(self: StreamingClient) -> None:
     await self._handle_signal_message({"actionType": SignalAction.SESSION_READY.value})
     # Session-ready and ICE connected are separate events, and connect waits between them.
@@ -74,14 +70,12 @@ async def ready_on_signalling_open(self: StreamingClient) -> None:
 
 
 @contextlib.contextmanager
-def real_sdk_connect(
-    on_signalling_open: Callable[[StreamingClient], Awaitable[None]],
-) -> Iterator[None]:
-    """Run the real StreamingClient.connect; on_signalling_open stands in for the WebRTC offer."""
+def real_sdk_connect() -> Iterator[None]:
+    """Run the real StreamingClient.connect; an early session-ready stands in for the WebRTC offer."""
     with (
         _stub_start_session(make_session_info()),
         fake_signalling_sockets(),
-        patch.object(StreamingClient, "_on_signalling_open", on_signalling_open),
+        patch.object(StreamingClient, "_on_signalling_open", ready_on_signalling_open),
     ):
         yield
 

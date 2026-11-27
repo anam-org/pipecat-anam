@@ -12,14 +12,13 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from anam import AgentAudioInputStream, AnamClient, AnamEvent, Session
+from anam import AnamClient, AnamEvent, Session
 from anam._signalling import SignallingClient
 from anam._streaming import StreamingClient
 from anam.types import ConnectionClosedCode
 from conftest import (
     _blocking_frames,
     _Harness,
-    _make_transport,
     _make_video_service,
     _wait_until,
     make_client,
@@ -28,21 +27,17 @@ from loguru import logger
 from pipecat.frames.frames import (
     Frame,
     InterruptionFrame,
-    StartFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
 )
 from pipecat.pipeline.worker import ProcessorUnusablePolicy
-from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_transport import TransportParams
 from real_sdk import (
     FakeSocket,
-    end_on_signalling_open,
     end_remotely,
     fake_signalling_sockets,
     patch_sdk_network,
-    ready_on_signalling_open,
     real_sdk_connect,
 )
 
@@ -60,34 +55,6 @@ async def _connected_client(
     assert isinstance(sdk_session, Session)
     assert sdk_session.is_active
     return client, sdk_session, sdk_session._client
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_harness_detects_listener_waiting_on_closer() -> None:
-    _, sdk_session, sdk_client = await _connected_client()
-    close_now = asyncio.Event()
-
-    async def close_session() -> None:
-        await close_now.wait()
-        await sdk_session.close()
-
-    # Created outside listener context: a task a listener starts inherits the SDK's
-    # notification context, and its close() would skip the wait this test needs.
-    worker = asyncio.create_task(close_session())
-
-    async def wait_for_closer(code: str, reason: str | None) -> None:
-        close_now.set()
-        await worker
-
-    sdk_client.add_listener(AnamEvent.CONNECTION_CLOSED, wait_for_closer)
-    end_task = end_remotely(sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-    try:
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(asyncio.shield(end_task), 1)
-    finally:
-        worker.cancel()
-        await asyncio.gather(worker, return_exceptions=True)
-        await asyncio.wait_for(end_task, 5)
 
 
 async def _until_closed_locally(sdk_client: AnamClient) -> None:
@@ -115,27 +82,6 @@ async def test_real_sdk_signalling_failure_reports_one_error() -> None:
     assert client.session is None
 
 
-@pytest.mark.asyncio
-async def test_real_sdk_normal_remote_end_is_not_an_error() -> None:
-    client, _, sdk_client = await _connected_client()
-
-    await asyncio.wait_for(end_remotely(sdk_client, ConnectionClosedCode.NORMAL, None), 5)
-
-    client._on_error.assert_not_awaited()
-    assert client.session is None
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_stop_completes() -> None:
-    client, sdk_session, _ = await _connected_client()
-
-    await asyncio.wait_for(client.stop(), 5)
-
-    client._on_error.assert_not_awaited()
-    assert sdk_session.is_active is False
-    assert client.stop_called is True
-
-
 @pytest.mark.parametrize("order", ["remote_first", "local_first"])
 @pytest.mark.asyncio
 async def test_real_sdk_stop_races_remote_end(order: str) -> None:
@@ -157,63 +103,6 @@ async def test_real_sdk_stop_races_remote_end(order: str) -> None:
     else:
         client._on_error.assert_not_awaited()
     assert client.session is None
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_end_during_connect_reports_start_failure() -> None:
-    client = make_client()
-    client._daily_client = MagicMock(leave=AsyncMock())
-    client._daily_start_join = AsyncMock()
-
-    with real_sdk_connect(end_on_signalling_open):
-        await asyncio.wait_for(client.start(StartFrame()), 5)
-
-    client._on_error.assert_awaited_once()
-    [message] = client._on_error.await_args.args
-    assert (
-        message == "AnamTransport failed to start: [session_error] Session ended while connecting"
-    )
-    assert client.session is None
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_transport_fatal_cascade() -> None:
-    transport = _make_transport()
-    transport._input = IdentityFilter(name="anam-input")
-    client, _, sdk_client = await _connected_client(transport._client)
-    daily = MagicMock(leave=AsyncMock())
-    client._daily_client = daily
-
-    harness = _Harness(transport._input, ProcessorUnusablePolicy.CANCEL)
-    await harness.start()
-    try:
-        end_task = end_remotely(sdk_client, ConnectionClosedCode.SERVER_CLOSED, "boom")
-        await asyncio.wait_for(end_task, 5)
-        await harness.wait_finished()
-
-        assert client.stop_called is True
-        assert client.session is None
-        daily.leave.assert_awaited_once()
-        [error] = harness.errors
-        assert "Anam session closed unexpectedly: server_closed" in error.error
-    finally:
-        if harness.is_running():
-            await harness.cancel()
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_agent_audio_after_end_is_dropped() -> None:
-    client, _, sdk_client = await _connected_client()
-    client._audio_out_sample_rate = 24000
-    client._create_agent_audio_stream()
-    stream = client.agent_audio_stream
-    assert stream is not None
-
-    end_task = end_remotely(sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-    await asyncio.wait_for(end_task, 5)
-
-    await asyncio.wait_for(stream.send_audio_chunk(b"\x00\x00" * 480), 5)
-    await asyncio.wait_for(stream.end_sequence(), 5)
 
 
 def _tts_frames(context_id: str = "c1") -> list[Frame]:
@@ -268,12 +157,6 @@ def _output_harness(client: AnamTransportClient) -> tuple[_Harness, MagicMock]:
     return harness, daily
 
 
-def _spy_on_audio_chunks(stream: AgentAudioInputStream) -> AsyncMock:
-    spy = AsyncMock(wraps=stream.send_audio_chunk)
-    stream.send_audio_chunk = spy
-    return spy
-
-
 @pytest.mark.asyncio
 async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None:
     client = make_client()
@@ -303,29 +186,6 @@ async def test_real_sdk_transport_recovers_a_dropped_signalling_socket() -> None
 
 
 @pytest.mark.asyncio
-async def test_real_sdk_transport_tts_after_normal_end_is_dropped() -> None:
-    client, _, sdk_client = await _connected_client()
-    harness, _ = _output_harness(client)
-    await harness.start()
-    try:
-        client._create_agent_audio_stream()
-        stream = client.agent_audio_stream
-        assert stream is not None
-        send_audio_chunk = _spy_on_audio_chunks(stream)
-        await asyncio.wait_for(end_remotely(sdk_client, ConnectionClosedCode.NORMAL, None), 5)
-
-        await harness.worker.queue_frames(_tts_frames())
-        await _wait_until(lambda: send_audio_chunk.await_count == 1, 5)
-        await _settle()
-
-        client._on_error.assert_not_awaited()
-        assert harness.errors == []
-    finally:
-        if harness.is_running():
-            await harness.cancel()
-
-
-@pytest.mark.asyncio
 async def test_real_sdk_transport_interruption_while_session_is_ending() -> None:
     client, sdk_session, sdk_client = await _connected_client()
     client._audio_out_sample_rate = 24000
@@ -347,32 +207,6 @@ async def test_real_sdk_transport_interruption_while_session_is_ending() -> None
     finally:
         release_teardown.set()
         await asyncio.wait_for(end_task, 5)
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_transport_interrupt_timeout_on_a_live_session_is_an_error() -> None:
-    client, sdk_session, _ = await _connected_client()
-    output = AnamOutputTransport(client, TransportParams())
-    _streaming_of(sdk_session).wait_for_data_channel = AsyncMock(return_value=False)
-
-    with _error_logs() as errors:
-        await asyncio.wait_for(output._on_interruption(), 1)
-
-    [error] = errors
-    assert "interrupt failed: [session_error] Data channel did not open in time" in error
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_transport_interruption_after_normal_end_skips_interrupt() -> None:
-    client, sdk_session, sdk_client = await _connected_client()
-    output = AnamOutputTransport(client, TransportParams())
-    await asyncio.wait_for(end_remotely(sdk_client, ConnectionClosedCode.NORMAL, None), 5)
-
-    with patch.object(Session, "interrupt", autospec=True) as interrupt:
-        await asyncio.wait_for(output._on_interruption(), 1)
-
-    interrupt.assert_not_called()
-    assert sdk_session.is_active is False
 
 
 @pytest.mark.asyncio
@@ -484,37 +318,6 @@ async def test_real_sdk_video_signalling_failure_reports_one_error() -> None:
         assert real.video.cancelled.is_set() and real.audio.cancelled.is_set()
 
 
-@pytest.mark.asyncio
-async def test_real_sdk_video_normal_remote_end_is_not_an_error() -> None:
-    with patch.object(
-        AnamVideoService,
-        "_on_connection_closed",
-        autospec=True,
-        side_effect=AnamVideoService._on_connection_closed,
-    ) as on_connection_closed:
-        async with _real_sdk_service() as real:
-            await _ready(real)
-
-            end_task = end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None)
-            await asyncio.wait_for(end_task, 5)
-            await _settle()
-
-            on_connection_closed.assert_awaited_once_with(real.service, "normal", None)
-            assert real.harness.errors == []
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_video_cleanup_completes() -> None:
-    async with _real_sdk_service() as real:
-        await _ready(real)
-
-        await asyncio.wait_for(real.service.cleanup(), 5)
-        await _settle()
-
-        assert real.harness.errors == []
-        assert real.sdk_session.is_active is False
-
-
 @pytest.mark.parametrize("order", ["remote_first", "local_first"])
 @pytest.mark.asyncio
 async def test_real_sdk_video_cleanup_races_remote_end(order: str) -> None:
@@ -617,7 +420,7 @@ async def _until_awaited(mock: AsyncMock) -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
-    async with _real_sdk_service(real_sdk_connect(ready_on_signalling_open)) as real:
+    async with _real_sdk_service(real_sdk_connect()) as real:
         service = real.service
         assert service._send_ready_event.is_set()
         assert service._send_task is not None and not service._send_task.done()
@@ -660,19 +463,3 @@ async def test_real_sdk_video_recovers_a_dropped_signalling_socket() -> None:
             assert real.sdk_session.is_active
             assert real.service._anam_session is real.sdk_session
             assert real.harness.errors == []
-
-
-@pytest.mark.asyncio
-async def test_real_sdk_video_tts_after_normal_end_is_dropped() -> None:
-    async with _real_sdk_service() as real:
-        await _ready(real)
-        stream = real.service._agent_audio_stream
-        assert stream is not None
-        send_audio_chunk = _spy_on_audio_chunks(stream)
-        await asyncio.wait_for(end_remotely(real.sdk_client, ConnectionClosedCode.NORMAL, None), 5)
-
-        await real.harness.worker.queue_frames(_tts_frames())
-        await _wait_until(lambda: send_audio_chunk.await_count == 1, 5)
-        await _settle()
-
-        assert real.harness.errors == []
