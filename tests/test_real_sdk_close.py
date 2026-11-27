@@ -36,7 +36,15 @@ from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_transport import TransportParams
-from real_sdk import FakeSocket, end_remotely, fake_signalling_sockets, patch_sdk_network
+from real_sdk import (
+    FakeSocket,
+    end_on_signalling_open,
+    end_remotely,
+    fake_signalling_sockets,
+    patch_sdk_network,
+    ready_on_signalling_open,
+    real_sdk_connect,
+)
 
 from pipecat_anam import AnamVideoService
 from pipecat_anam.transport import AnamOutputTransport, AnamTransportClient
@@ -157,7 +165,7 @@ async def test_real_sdk_end_during_connect_reports_start_failure() -> None:
     client._daily_client = MagicMock(leave=AsyncMock())
     client._daily_start_join = AsyncMock()
 
-    with patch_sdk_network(end_during_connect=True):
+    with real_sdk_connect(end_on_signalling_open):
         await asyncio.wait_for(client.start(StartFrame()), 5)
 
     client._on_error.assert_awaited_once()
@@ -422,12 +430,14 @@ class _RealSdkService:
 
 
 @contextlib.asynccontextmanager
-async def _real_sdk_service(**network: bool) -> AsyncIterator[_RealSdkService]:
+async def _real_sdk_service(
+    network: contextlib.AbstractContextManager[Any] | None = None,
+) -> AsyncIterator[_RealSdkService]:
     video, audio = _Consumer(), _Consumer()
     service = _make_video_service()
     harness = _Harness(service, ProcessorUnusablePolicy.CONTINUE, cancel_timeout_secs=0.5)
     with (
-        patch_sdk_network(**network),
+        network or patch_sdk_network(),
         patch.object(Session, "video_frames", video.frames()),
         patch.object(Session, "audio_frames", audio.frames()),
     ):
@@ -599,7 +609,7 @@ async def _until_awaited(mock: AsyncMock) -> None:
 
 @pytest.mark.asyncio
 async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
-    async with _real_sdk_service(ready_during_connect=True) as real:
+    async with _real_sdk_service(real_sdk_connect(ready_on_signalling_open)) as real:
         service = real.service
         assert service._send_ready_event.is_set()
         assert service._send_task is not None and not service._send_task.done()
@@ -631,7 +641,7 @@ async def test_real_sdk_video_interruption_after_normal_end() -> None:
 @pytest.mark.asyncio
 async def test_real_sdk_video_recovers_a_dropped_signalling_socket() -> None:
     with fake_signalling_sockets() as sockets:
-        async with _real_sdk_service(open_signalling=True) as real:
+        async with _real_sdk_service(patch_sdk_network(open_signalling=True)) as real:
             await _ready(real)
 
             new_socket = await _drop_and_reconnect(sockets, real.sdk_session)

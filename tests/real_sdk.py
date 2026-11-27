@@ -7,7 +7,7 @@
 import asyncio
 import contextlib
 import json
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -15,9 +15,8 @@ from unittest.mock import patch
 import anam._signalling
 from anam import AnamClient
 from anam._api import CoreApiClient
-from anam._signalling import SignallingClient
+from anam._signalling import SignalAction, SignallingClient
 from anam._streaming import StreamingClient
-from anam.errors import SessionError
 from anam.types import ConnectionClosedCode, SessionInfo
 from websockets.protocol import State
 
@@ -33,19 +32,17 @@ def make_session_info() -> SessionInfo:
     )
 
 
-@contextlib.contextmanager
-def patch_sdk_network(
-    session_info: SessionInfo | None = None,
-    *,
-    end_during_connect: bool = False,
-    ready_during_connect: bool = False,
-    open_signalling: bool = False,
-) -> Iterator[None]:
-    info = session_info or make_session_info()
-
+def _stub_start_session(info: SessionInfo) -> contextlib.AbstractContextManager[Any]:
     async def start_session(self: CoreApiClient, *args: Any, **kwargs: Any) -> SessionInfo:
         return info
 
+    return patch.object(CoreApiClient, "start_session", start_session)
+
+
+@contextlib.contextmanager
+def patch_sdk_network(
+    session_info: SessionInfo | None = None, *, open_signalling: bool = False
+) -> Iterator[None]:
     async def connect(self: StreamingClient, timeout: float = 30.0) -> None:
         # No on_open: it would start the peer connection, which these tests do not fake.
         self._signalling_client = SignallingClient(
@@ -56,20 +53,33 @@ def patch_sdk_network(
         )
         if open_signalling:
             await self._signalling_client.connect()
-        if end_during_connect:
-            self._terminate(ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-            await self.close()
-            raise SessionError("Session ended while connecting")
-        if ready_during_connect:
-            assert self._on_session_ready is not None
-            await self._on_session_ready()
-            for _ in range(5):
-                await asyncio.sleep(0)
         self._started = True
 
     with (
-        patch.object(CoreApiClient, "start_session", start_session),
+        _stub_start_session(session_info or make_session_info()),
         patch.object(StreamingClient, "connect", connect),
+    ):
+        yield
+
+
+async def end_on_signalling_open(self: StreamingClient) -> None:
+    self._terminate(ConnectionClosedCode.SIGNALLING_FAILURE, "x")
+
+
+async def ready_on_signalling_open(self: StreamingClient) -> None:
+    await self._handle_signal_message({"actionType": SignalAction.SESSION_READY.value})
+    self._mark_connected()
+
+
+@contextlib.contextmanager
+def real_sdk_connect(
+    on_signalling_open: Callable[[StreamingClient], Awaitable[None]],
+) -> Iterator[None]:
+    """Run the real StreamingClient.connect; on_signalling_open stands in for the WebRTC offer."""
+    with (
+        _stub_start_session(make_session_info()),
+        fake_signalling_sockets(),
+        patch.object(StreamingClient, "_on_signalling_open", on_signalling_open),
     ):
         yield
 
