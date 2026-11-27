@@ -146,7 +146,7 @@ class AnamVideoService(AIService):
         self._send_state_lock: asyncio.Lock = asyncio.Lock()
         self._anam_resampler = AudioResampler("s16", "mono", 48000)
         self._transport_ready = False
-        self._send_ready_event = asyncio.Event()
+        self._session_ready_event = asyncio.Event()
         self._backend_ready: bool = False
         self._audio_out_sample_rate: int | None = None
         # Several sources (connect, frame consumers, connection close) can report the same failure.
@@ -224,7 +224,7 @@ class AnamVideoService(AIService):
             raise RuntimeError("Anam client not initialized. Call setup() first.")
         await super().start(frame)
 
-        self._send_ready_event.clear()
+        self._session_ready_event.clear()
         self._backend_ready = False
         if self._audio_out_sample_rate is None:
             raise RuntimeError(
@@ -275,7 +275,7 @@ class AnamVideoService(AIService):
             self._video_task = self.create_task(self._consume_video_frames())
             self._audio_task = self.create_task(self._consume_audio_frames())
             # Watchdog: surface an unrecoverable error if the avatar backend never signals readiness.
-            await asyncio.wait_for(self._send_ready_event.wait(), timeout=30)
+            await asyncio.wait_for(self._session_ready_event.wait(), timeout=30)
         except Exception as e:
             if isinstance(e, asyncio.TimeoutError):
                 error_msg = "Anam session connection timed out."
@@ -453,7 +453,7 @@ class AnamVideoService(AIService):
 
     def _release_send_task(self) -> None:
         if self._backend_ready and self._agent_audio_stream is not None:
-            self._send_ready_event.set()
+            self._session_ready_event.set()
 
     async def _on_connection_closed(self, code: str, reason: str | None) -> None:
         """Handle connection closed event.
@@ -554,7 +554,7 @@ class AnamVideoService(AIService):
         stop frame we wait briefly for late audio before ending the current sequence.
         """
         # Block until the avatar backend signals it can accept TTS.
-        await self._send_ready_event.wait()
+        await self._session_ready_event.wait()
 
         if not self._agent_audio_stream:
             logger.error("Agent audio stream not initialized")

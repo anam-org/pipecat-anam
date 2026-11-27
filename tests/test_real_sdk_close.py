@@ -294,7 +294,7 @@ async def _real_sdk_service(
 
 async def _ready(real: _RealSdkService) -> None:
     await asyncio.wait_for(real.sdk_client._handle_session_ready(), 5)
-    assert real.service._send_ready_event.is_set()
+    assert real.service._session_ready_event.is_set()
 
 
 async def _settle() -> None:
@@ -422,7 +422,7 @@ async def _until_awaited(mock: AsyncMock) -> None:
 async def test_real_sdk_video_early_session_ready_is_not_lost() -> None:
     async with _real_sdk_service(real_sdk_connect()) as real:
         service = real.service
-        assert service._send_ready_event.is_set()
+        assert service._session_ready_event.is_set()
         assert service._send_task is not None and not service._send_task.done()
         assert real.harness.errors == []
 
