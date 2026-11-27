@@ -522,22 +522,30 @@ async def test_real_sdk_video_cleanup_races_remote_end(order: str) -> None:
         await _ready(real)
 
         if order == "remote_first":
-            end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-            cleanup_task = asyncio.create_task(real.service.cleanup())
+            shutdown_client = real.service._shutdown_client
+
+            async def shutdown_after_the_error() -> None:
+                await asyncio.wait_for(real.harness.errored.wait(), 2)
+                await shutdown_client()
+
+            with patch.object(real.service, "_shutdown_client", shutdown_after_the_error):
+                end_task = end_remotely(
+                    real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x"
+                )
+                cleanup_task = asyncio.create_task(real.service.cleanup())
+                await asyncio.wait_for(asyncio.gather(cleanup_task, end_task), 5)
         else:
             cleanup_task = asyncio.create_task(real.service.cleanup())
             await _until_closed_locally(real.sdk_client)
             end_task = end_remotely(real.sdk_client, ConnectionClosedCode.SIGNALLING_FAILURE, "x")
-        await asyncio.wait_for(asyncio.gather(cleanup_task, end_task), 5)
+            await asyncio.wait_for(asyncio.gather(cleanup_task, end_task), 5)
         await _settle()
 
         assert cleanup_task.done() and end_task.done()
         assert real.sdk_session.is_active is False
         if order == "remote_first":
-            # Zero when cleanup detaches the listener before the SDK notifies.
-            assert len(real.harness.errors) <= 1
-            for error in real.harness.errors:
-                assert "Anam connection closed: signalling_failure" in error.error
+            [error] = real.harness.errors
+            assert "Anam connection closed: signalling_failure" in error.error
         else:
             assert real.harness.errors == []
 
