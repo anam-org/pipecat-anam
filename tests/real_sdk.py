@@ -68,6 +68,8 @@ async def end_on_signalling_open(self: StreamingClient) -> None:
 
 async def ready_on_signalling_open(self: StreamingClient) -> None:
     await self._handle_signal_message({"actionType": SignalAction.SESSION_READY.value})
+    # Session-ready and ICE connected are separate events, and connect waits between them.
+    await asyncio.sleep(0)
     self._mark_connected()
 
 
